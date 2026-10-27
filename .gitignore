@@ -1,0 +1,46 @@
+# Compiled Binaries & Release Archives
+*.exe
+*.exe~
+*.old
+*.dll
+*.so
+*.dylib
+/omnicoder
+/omnicoder-linux*
+/omnicoder-darwin*
+bin/
+release/
+dist/
+
+# Coverage & Test Profiles
+cov
+coverage
+*.coverprofile
+*.test
+*.out
+
+# Embedded TitanKV & Swarm Worktree State
+.omnicoder/
+.worktrees/
+.icx_space/
+.icx_cas/
+.agents/
+cmd/omnicoder/pkg/
+
+# Python Bytecode & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+
+# Generated Workspaces & Scratch Folders
+projects/
+scratch/
+
+# Local Environment & Secrets
+.env
+*.env
+.DS_Store
+Thumbs.db

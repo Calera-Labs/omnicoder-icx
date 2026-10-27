@@ -1,0 +1,40 @@
+name: OmniCoder-ICX CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    name: Go Vet, Test & Zero-CGo Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go 1.24
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Verify Zero-CGo Build
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go build -ldflags="-s -w" -trimpath ./cmd/omnicoder
+          go build -ldflags="-s -w" -trimpath -o omnicoder.exe ./cmd/omnicoder
+
+      - name: Run Go Vet
+        run: go vet ./...
+
+      - name: Run Unit Test Suite
+        run: go test -count=1 ./pkg/... ./cmd/...

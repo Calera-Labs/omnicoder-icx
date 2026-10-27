@@ -1,0 +1,27 @@
+OmniCoder-ICX
+Copyright 2026 Calera Computing, Inc. (https://caleralabs.com | support@caleralabs.com)
+
+This product includes the standalone OmniCoder CLI, local orchestration engine,
+Model Context Protocol (MCP) server, local memory cache fallback, and client
+connector interfaces developed by Calera Computing, Inc. (https://caleralabs.com),
+licensed under the Apache License, Version 2.0.
+
+IMPORTANT NOTICE REGARDING CALERA ICX & THE STEWARDSHIP DOCTRINE (THE EZEKIEL GATE):
+1. The Apache License, Version 2.0 applies solely to OmniCoder standalone
+   (without Calera ICX).
+2. The Calera ICX platform, server engine, Volumetric Lattice Network (VLN)
+   memory substrate, and all associated Calera Computing, Inc. patents, patent
+   applications, trade secrets, and trademarks are proprietary to Calera
+   Computing, Inc. and are governed exclusively by the commercial licensing
+   terms and Stewardship Doctrine (The Ezekiel Gate — Ezekiel 3:17–18) at:
+
+       https://icx.caleralabs.com
+
+3. No license, patent grant, or right to the Calera ICX platform or VLN
+   substrate is granted by this repository or the Apache License, Version 2.0.
+   All commercial and enterprise licensing of Calera ICX is subject to buyer
+   qualification under The Ezekiel Gate (human-in-the-loop oversight, written
+   acknowledgment that the substrate is a mathematical tool and not an entity
+   or oracle, prohibition of surveillance oracles and autonomous weapons, and
+   preservation of the Founder 1% perpetual license-back covenant).
+   Inquiries: support@caleralabs.com

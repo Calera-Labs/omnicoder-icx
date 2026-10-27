@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Meet OmniCoder-ICX — Architecture Product Paper (2026)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@500;700&amp;display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #070A12;
+      --surface: #0F172A;
+      --card: #1E293B;
+      --border: #334155;
+      --text: #F8FAFC;
+      --muted: #94A3B8;
+      --indigo: #6366F1;
+      --emerald: #10B981;
+      --cyan: #38BDF8;
+      --amber: #F59E0B;
+      --rose: #F43F5E;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.7;
+      font-size: 17px;
+    }
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 48px 28px 96px;
+    }
+    header {
+      margin-bottom: 40px;
+    }
+    .svg-figure {
+      margin: 32px 0;
+      border-radius: 18px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      background: var(--surface);
+    }
+    .svg-figure svg {
+      display: block;
+      width: 100%;
+      min-width: 720px;
+      height: auto;
+    }
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 28px 0;
+    }
+    h1 {
+      font-size: 40px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin: 0 0 14px;
+      color: #FFFFFF;
+    }
+    h2 {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      color: #FFFFFF;
+      margin-top: 56px;
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    h3 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #E0E7FF;
+      margin-top: 28px;
+      margin-bottom: 10px;
+    }
+    p {
+      color: #CBD5E1;
+      margin: 0 0 18px;
+    }
+    strong {
+      color: #FFFFFF;
+    }
+    a {
+      color: var(--cyan);
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    .callout {
+      background: linear-gradient(135deg, rgba(30, 27, 75, 0.75), rgba(15, 23, 42, 0.9));
+      border-left: 4px solid var(--emerald);
+      padding: 20px 24px;
+      border-radius: 0 12px 12px 0;
+      margin: 26px 0;
+    }
+    .callout.warn {
+      border-left-color: var(--amber);
+    }
+    .callout p {
+      margin: 0;
+      color: #E2E8F0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface);
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      font-size: 15px;
+    }
+    th {
+      background: #1E1B4B;
+      color: #E0E7FF;
+      font-weight: 700;
+      text-align: left;
+      padding: 14px 16px;
+    }
+    td {
+      padding: 13px 16px;
+      border-top: 1px solid var(--border);
+      color: #CBD5E1;
+    }
+    tr.highlight td {
+      background: rgba(16, 185, 129, 0.12);
+      color: #FFFFFF;
+      font-weight: 700;
+    }
+    tr.pending td {
+      background: rgba(56, 189, 248, 0.12);
+      color: #E0F2FE;
+      font-weight: 700;
+    }
+    code {
+      font-family: "JetBrains Mono", Consolas, monospace;
+      background: #1E293B;
+      color: #38BDF8;
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 0.9em;
+    }
+    ul, ol {
+      color: #CBD5E1;
+      padding-left: 24px;
+      margin-bottom: 22px;
+    }
+    li {
+      margin-bottom: 10px;
+    }
+    footer {
+      margin-top: 72px;
+      padding-top: 28px;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="svg-figure"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" width="100%" height="100%" role="img" aria-label="Meet OmniCoder-ICX overview banner showing 4D GPS map, sub-300 token decision cards, and benchmark summary cards">
+  <title>Meet OmniCoder-ICX — Architecture Overview</title>
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090D16"/>
+      <stop offset="50%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#1E1B4B"/>
+    </linearGradient>
+    <linearGradient id="indigoGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4338CA"/>
+      <stop offset="50%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="emeraldGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#059669"/>
+      <stop offset="100%" stop-color="#10B981"/>
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#0F172A" stop-opacity="0.95"/>
+    </linearGradient>
+    <pattern id="gridPattern" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#334155" stroke-width="0.6" stroke-opacity="0.35"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="520" rx="20" fill="url(#bgGrad)"/>
+  <rect width="1200" height="520" rx="20" fill="url(#gridPattern)"/>
+
+  <!-- Decorative Ambient Orbs -->
+  <circle cx="1050" cy="110" r="180" fill="#6366F1" opacity="0.12"/>
+  <circle cx="180" cy="420" r="160" fill="#10B981" opacity="0.10"/>
+
+  <!-- Top Pill Badge -->
+  <rect x="60" y="42" width="450" height="34" rx="17" fill="#1E1B4B" stroke="#6366F1" stroke-width="1.5"/>
+  <circle cx="82" cy="59" r="6" fill="#10B981"/>
+  <text x="98" y="64" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#E0E7FF" letter-spacing="1.2">CALERA COMPUTING • ARCHITECTURE PAPER 2026</text>
+
+  <!-- Main Headline -->
+  <text x="60" y="132" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="52" font-weight="800" fill="#FFFFFF" letter-spacing="-1">Meet OmniCoder-ICX</text>
+  <text x="60" y="178" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="24" font-weight="600" fill="#A5B4FC">How a 300-Token Decision Card &amp; a 4D Code Map Replace Bloated Chat Loops</text>
+  <text x="60" y="216" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="16" fill="#94A3B8">Instead of stuffing 200,000 tokens of raw files and logs into an LLM's prompt window, OmniCoder indexes your</text>
+  <text x="60" y="240" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="16" fill="#94A3B8">repository like a GPS, works from compact &lt;300-token cards, and coordinates parallel builders in isolated worktrees.</text>
+
+  <!-- Right Side Visual Emblem: 4D Lattice Core -->
+  <g transform="translate(970, 155)">
+    <polygon points="0,-95 85,-45 85,45 0,95 -85,45 -85,-45" fill="#1E1B4B" stroke="#8B5CF6" stroke-width="2" opacity="0.85"/>
+    <polygon points="0,-68 60,-32 60,32 0,68 -60,32 -60,-32" fill="#0F172A" stroke="#38BDF8" stroke-width="1.8"/>
+    <line x1="0" y1="-95" x2="0" y2="-68" stroke="#6366F1" stroke-width="1.5"/>
+    <line x1="85" y1="-45" x2="60" y2="-32" stroke="#6366F1" stroke-width="1.5"/>
+    <line x1="85" y1="45" x2="60" y2="32" stroke="#6366F1" stroke-width="1.5"/>
+    <line x1="0" y1="95" x2="0" y2="68" stroke="#6366F1" stroke-width="1.5"/>
+    <line x1="-85" y1="45" x2="-60" y2="32" stroke="#6366F1" stroke-width="1.5"/>
+    <line x1="-85" y1="-45" x2="-60" y2="-32" stroke="#6366F1" stroke-width="1.5"/>
+    <circle cx="0" cy="0" r="28" fill="url(#indigoGlow)"/>
+    <text x="0" y="5" text-anchor="middle" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="13" font-weight="800" fill="#FFFFFF">4D GPS</text>
+    <circle cx="0" cy="-95" r="5" fill="#10B981"/>
+    <circle cx="85" cy="-45" r="5" fill="#38BDF8"/>
+    <circle cx="85" cy="45" r="5" fill="#F59E0B"/>
+    <circle cx="0" cy="95" r="5" fill="#10B981"/>
+    <circle cx="-85" cy="45" r="5" fill="#EC4899"/>
+    <circle cx="-85" cy="-45" r="5" fill="#A855F7"/>
+  </g>
+
+  <!-- 5 Metric Cards at Bottom -->
+  <!-- Card 1: 20-Tool Native MCP Server -->
+  <g transform="translate(60, 285)">
+    <rect width="204" height="185" rx="14" fill="url(#cardGrad)" stroke="#38BDF8" stroke-width="1.5"/>
+    <rect x="16" y="16" width="132" height="24" rx="12" fill="#0C4A6E"/>
+    <text x="82" y="32" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#38BDF8">MCP SERVER</text>
+    <text x="16" y="84" font-family="Inter, Segoe UI, sans-serif" font-size="40" font-weight="800" fill="#38BDF8">20 Tools</text>
+    <text x="16" y="112" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">Native JSON-RPC 2.0</text>
+    <text x="16" y="136" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Plugs into VS Code, Cursor,</text>
+    <text x="16" y="154" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Cline &amp; Antigravity</text>
+  </g>
+
+  <!-- Card 2: 5-Tier Surgical Splicer -->
+  <g transform="translate(279, 285)">
+    <rect width="204" height="185" rx="14" fill="url(#cardGrad)" stroke="#10B981" stroke-width="1.5"/>
+    <rect x="16" y="16" width="124" height="24" rx="12" fill="#064E3B"/>
+    <text x="78" y="32" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#34D399">SURGICAL PATCH</text>
+    <text x="16" y="84" font-family="Inter, Segoe UI, sans-serif" font-size="42" font-weight="800" fill="#10B981">5-Tier</text>
+    <text x="16" y="112" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">AST &amp; Fuzzy Splicer</text>
+    <text x="16" y="136" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Zero-token pre-healer &amp;</text>
+    <text x="16" y="154" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">2PC transaction verification</text>
+  </g>
+
+  <!-- Card 3: Low Context -->
+  <g transform="translate(498, 285)">
+    <rect width="204" height="185" rx="14" fill="url(#cardGrad)" stroke="#8B5CF6" stroke-width="1.5"/>
+    <rect x="16" y="16" width="116" height="24" rx="12" fill="#2E1065"/>
+    <text x="74" y="32" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#C4B5FD">COMPACT CARDS</text>
+    <text x="16" y="84" font-family="Inter, Segoe UI, sans-serif" font-size="44" font-weight="800" fill="#A78BFA">&lt;300</text>
+    <text x="16" y="112" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">Tokens Per Decision Card</text>
+    <text x="16" y="136" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Targeted code slices keep</text>
+    <text x="16" y="154" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">prompts small &amp; focused</text>
+  </g>
+
+  <!-- Card 4: Parallel Swarm -->
+  <g transform="translate(717, 285)">
+    <rect width="204" height="185" rx="14" fill="url(#cardGrad)" stroke="#F59E0B" stroke-width="1.5"/>
+    <rect x="16" y="16" width="128" height="24" rx="12" fill="#451A03"/>
+    <text x="80" y="32" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#FCD34D">SWARM OVERHEAD</text>
+    <text x="16" y="84" font-family="Inter, Segoe UI, sans-serif" font-size="44" font-weight="800" fill="#FBBF24">4.07x</text>
+    <text x="16" y="112" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">Coordination Speedup</text>
+    <text x="16" y="136" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">582ms → 143ms on synthetic</text>
+    <text x="16" y="154" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">3-worker multi-module build</text>
+  </g>
+
+  <!-- Card 5: Single Binary -->
+  <g transform="translate(936, 285)">
+    <rect width="204" height="185" rx="14" fill="url(#cardGrad)" stroke="#EC4899" stroke-width="1.5"/>
+    <rect x="16" y="16" width="112" height="24" rx="12" fill="#500724"/>
+    <text x="72" y="32" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#F472B6">SINGLE BINARY</text>
+    <text x="16" y="84" font-family="Inter, Segoe UI, sans-serif" font-size="44" font-weight="800" fill="#F472B6">16 MB</text>
+    <text x="16" y="112" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">Standalone Go Engine</text>
+    <text x="16" y="136" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">100% Pure Go. No Python</text>
+    <text x="16" y="154" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">runtime or cloud VM needed</text>
+  </g>
+</svg></div>
+    </header>
+
+    <section>
+      <h2>Executive Summary: Why We Built OmniCoder</h2>
+      <p>For the past three years, much of the industry has chased autonomous software engineering by pouring larger and larger prompts into frontier language models—hoping that a 200,000-token context window filled with raw files, shell transcripts, and stack traces is enough to fix complex bugs.</p>
+      <p><strong>In practice, unbounded chat loops hit diminishing returns fast.</strong></p>
+      <p>When a conventional chat-loop coding agent attempts to fix a bug in a large repository, it behaves like an engineer who photocopies an entire <strong>10,000-page building manual</strong> onto their desk every time they turn a wrench. Within a few turns, the prompt window is buried under <strong>40,000 to 200,000+ tokens of stale error logs and full source files</strong>. Attention dilutes ("lost in the middle"), latency compounds on every turn, and token bills multiply because the model re-reads the entire conversation history at every step.</p>
+      <p><strong>OmniCoder-ICX takes the opposite architectural path.</strong> Instead of forcing an LLM to re-read an entire repository history on every step, OmniCoder separates <em>remembering</em> from <em>reasoning</em> using a <strong>4D Software GPS Map</strong> that indexes symbols, call graphs, and edit history outside the prompt window, and a <strong>&lt;300-Token Decision Card</strong> that shows the model only the localized code slice and resets the prompt window before the next step.</p>
+    </section>
+
+    <section>
+      <h2>1. The Big Problem: "The 500-Page Binder on a Messy Desk"</h2>
+      <p>Imagine hiring a plumber to fix a leaky pipe on the 14th floor of a 100-story skyscraper. A skilled plumber walks up to the 14th floor, inspects the blueprint for that single bathroom, shuts off the local valve, and replaces the pipe. Cumulative chat-loop agents instead append full file dumps and test logs into a growing conversation transcript on every turn.</p>
+      <div class="svg-figure"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 620" width="100%" height="100%" role="img" aria-label="Comparison between traditional cumulative chat context loops and OmniCoder sub-300-token decision cards">
+  <title>Cumulative Chat History vs. OmniCoder 300-Token Decision Cards</title>
+  <defs>
+    <linearGradient id="bg2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#090D16"/>
+    </linearGradient>
+    <linearGradient id="redPanel" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1F1218"/>
+      <stop offset="100%" stop-color="#140C10"/>
+    </linearGradient>
+    <linearGradient id="greenPanel" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0D1F1C"/>
+      <stop offset="100%" stop-color="#091518"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="620" rx="18" fill="url(#bg2)"/>
+
+  <!-- Header -->
+  <text x="600" y="46" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="26" font-weight="800" fill="#FFFFFF">Why Traditional AI Coding Loops Accumulate Noise—And How OmniCoder Avoids It</text>
+  <text x="600" y="74" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="15" fill="#94A3B8">Think of fixing software like repairing a leaky pipe on the 14th floor of a skyscraper</text>
+
+  <!-- LEFT PANEL: Traditional AI (The 500-Page Binder) -->
+  <g transform="translate(45, 100)">
+    <rect width="535" height="485" rx="16" fill="url(#redPanel)" stroke="#F43F5E" stroke-width="2"/>
+    <rect x="24" y="22" width="190" height="28" rx="14" fill="#881337"/>
+    <text x="119" y="41" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#FDA4AF">CUMULATIVE CHAT LOOP</text>
+    <text x="24" y="82" font-family="Inter, Segoe UI, sans-serif" font-size="22" font-weight="800" fill="#FFFFFF">"The 500-Page Binder on a Messy Desk"</text>
+    <text x="24" y="106" font-family="Inter, Segoe UI, sans-serif" font-size="13" fill="#FDA4AF">Re-sending full files, bash outputs, and prior turns on every step</text>
+
+    <!-- Visual: Stacking Paper Pile Growing Every Turn -->
+    <g transform="translate(30, 128)">
+      <rect width="475" height="175" rx="12" fill="#0F172A" stroke="#4C1D24" stroke-width="1.5"/>
+      <text x="20" y="28" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="700" fill="#F43F5E">Prompt tokens re-read on each turn:</text>
+
+      <!-- Turn Bars showing quadratic growth -->
+      <text x="20" y="58" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Step 1:</text>
+      <rect x="85" y="45" width="55" height="18" rx="4" fill="#FB7185"/>
+      <text x="148" y="58" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">15,000 tokens read</text>
+
+      <text x="20" y="86" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Step 5:</text>
+      <rect x="85" y="73" width="145" height="18" rx="4" fill="#F43F5E"/>
+      <text x="238" y="86" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">80,000 tokens re-read</text>
+
+      <text x="20" y="114" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Step 10:</text>
+      <rect x="85" y="101" width="245" height="18" rx="4" fill="#E11D48"/>
+      <text x="338" y="114" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#FDA4AF">160,000 tokens (Attention Dilution)</text>
+
+      <text x="20" y="142" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Step 15:</text>
+      <rect x="85" y="129" width="355" height="18" rx="4" fill="#BE123C"/>
+      <text x="260" y="143" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#FFFFFF">200,000+ TOKENS — CONTEXT SATURATION</text>
+    </g>
+
+    <!-- 3 Bullet Consequences -->
+    <g transform="translate(30, 322)">
+      <circle cx="14" cy="14" r="10" fill="#881337"/>
+      <text x="14" y="18" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#FDA4AF">1</text>
+      <text x="34" y="18" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">Information Overload ("Lost in the Middle")</text>
+      <text x="34" y="38" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Old error logs and whole files bury the 5 lines of code that actually matter.</text>
+
+      <circle cx="14" cy="64" r="10" fill="#881337"/>
+      <text x="14" y="68" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#FDA4AF">2</text>
+      <text x="34" y="68" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">Quadratic Token Billing</text>
+      <text x="34" y="88" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Because APIs bill per input token on every turn, re-sending history multiplies cost.</text>
+
+      <circle cx="14" cy="114" r="10" fill="#881337"/>
+      <text x="14" y="118" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#FDA4AF">3</text>
+      <text x="34" y="118" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">Typical Multi-Turn Agent Footprint</text>
+      <text x="34" y="138" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#FDA4AF" font-weight="700">~42k to 185k+ tokens • 1.5 to 8 minutes per issue</text>
+    </g>
+  </g>
+
+  <!-- RIGHT PANEL: OmniCoder-ICX (The GPS & 300-Token Index Card) -->
+  <g transform="translate(620, 100)">
+    <rect width="535" height="485" rx="16" fill="url(#greenPanel)" stroke="#10B981" stroke-width="2"/>
+    <rect x="24" y="22" width="225" height="28" rx="14" fill="#064E3B"/>
+    <text x="136" y="41" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#6EE7B7">THE OMNICODER WAY: BOUNDED</text>
+    <text x="24" y="82" font-family="Inter, Segoe UI, sans-serif" font-size="22" font-weight="800" fill="#FFFFFF">"A 4D GPS Map + A 300-Token Index Card"</text>
+    <text x="24" y="106" font-family="Inter, Segoe UI, sans-serif" font-size="13" fill="#6EE7B7">Decoupled Volumetric Memory + Micro-Decision Cards + Clean Desk Reset</text>
+
+    <!-- Visual: Constant Tiny Index Cards -->
+    <g transform="translate(30, 128)">
+      <rect width="475" height="175" rx="12" fill="#0F172A" stroke="#065F46" stroke-width="1.5"/>
+      <text x="20" y="28" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="700" fill="#34D399">Bounded prompt tokens on each decision card:</text>
+
+      <!-- Step 1-4 Tiny Index Cards -->
+      <g transform="translate(22, 45)">
+        <rect width="98" height="108" rx="8" fill="#1E293B" stroke="#10B981" stroke-width="1.5"/>
+        <text x="49" y="22" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#34D399">CARD 1</text>
+        <text x="49" y="44" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#E2E8F0">Locate Fault</text>
+        <text x="49" y="64" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#10B981">240 tokens</text>
+        <rect x="12" y="78" width="74" height="18" rx="4" fill="#064E3B"/>
+        <text x="49" y="91" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="10" font-weight="700" fill="#A7F3D0">DESK WIPED</text>
+      </g>
+
+      <g transform="translate(134, 45)">
+        <rect width="98" height="108" rx="8" fill="#1E293B" stroke="#10B981" stroke-width="1.5"/>
+        <text x="49" y="22" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#34D399">CARD 2</text>
+        <text x="49" y="44" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#E2E8F0">Check Callers</text>
+        <text x="49" y="64" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#10B981">280 tokens</text>
+        <rect x="12" y="78" width="74" height="18" rx="4" fill="#064E3B"/>
+        <text x="49" y="91" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="10" font-weight="700" fill="#A7F3D0">DESK WIPED</text>
+      </g>
+
+      <g transform="translate(246, 45)">
+        <rect width="98" height="108" rx="8" fill="#1E293B" stroke="#10B981" stroke-width="1.5"/>
+        <text x="49" y="22" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#34D399">CARD 3</text>
+        <text x="49" y="44" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#E2E8F0">Splice Patch</text>
+        <text x="49" y="64" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#10B981">265 tokens</text>
+        <rect x="12" y="78" width="74" height="18" rx="4" fill="#064E3B"/>
+        <text x="49" y="91" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="10" font-weight="700" fill="#A7F3D0">DESK WIPED</text>
+      </g>
+
+      <g transform="translate(358, 45)">
+        <rect width="98" height="108" rx="8" fill="#1E293B" stroke="#38BDF8" stroke-width="1.5"/>
+        <text x="49" y="22" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#38BDF8">CARD 4</text>
+        <text x="49" y="44" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#E2E8F0">Verify Seal</text>
+        <text x="49" y="64" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#38BDF8">190 tokens</text>
+        <rect x="12" y="78" width="74" height="18" rx="4" fill="#0C4A6E"/>
+        <text x="49" y="91" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="10" font-weight="700" fill="#BAE6FD">VERIFIED</text>
+      </g>
+    </g>
+
+    <!-- 3 Bullet Benefits -->
+    <g transform="translate(30, 322)">
+      <circle cx="14" cy="14" r="10" fill="#064E3B"/>
+      <text x="14" y="18" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#6EE7B7">1</text>
+      <text x="34" y="18" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">Pinpoint AST &amp; Call-Graph Slicing (&lt;50ms)</text>
+      <text x="34" y="38" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Pulls only the target function, class setup, and immediate callers onto the card.</text>
+
+      <circle cx="14" cy="64" r="10" fill="#064E3B"/>
+      <text x="14" y="68" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#6EE7B7">2</text>
+      <text x="34" y="68" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">Clean Desk After Every Step (Zero-Token Reset)</text>
+      <text x="34" y="88" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Confirmed facts are stored as &lt;170-token receipts in the 4D vault; chat noise resets.</text>
+
+      <circle cx="14" cy="114" r="10" fill="#064E3B"/>
+      <text x="14" y="118" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#6EE7B7">3</text>
+      <text x="34" y="118" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">Measured Footprint Across Two Operating Modes</text>
+      <text x="34" y="138" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#34D399" font-weight="700">Single-Pass (--beam-k=1): ~2,450 tok (16.4s) • Multi-Hunk (--beam-k=3): ~2,600 tok (75.1s)</text>
+    </g>
+  </g>
+</svg></div>
+      <div class="callout">
+        <p><strong>The OmniCoder Architecture:</strong> By separating <em>Reasoning</em> from <em>State Storage</em>, OmniCoder keeps each prompt card bounded under 300 tokens. A persistent 0D–4D repository lattice stores the project map and compact (&lt;170-token) edit receipts, while transient chat noise resets between turns.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>2. Inside OmniCoder&apos;s Dual Brain: The Architect &amp; The Assembly Line</h2>
+      <p>OmniCoder combines an interactive <strong>Conversational Architect</strong> (plain-English terminal requests with anti-placeholder guards) with a deterministic <strong>8-Stage Mechanical Pipeline</strong> underneath:</p>
+      <div class="svg-figure"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" width="100%" height="100%" role="img" aria-label="Diagram of OmniCoder dual-layer architecture showing Layer 1 Conversational Architect and Layer 2 8-Stage Mechanical Engine">
+  <title>Inside OmniCoder's Dual Brain: Conversational Architect and 8-Stage Mechanical Pipeline</title>
+  <defs>
+    <linearGradient id="bg4" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#090D16"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="heartGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E1B4B"/>
+      <stop offset="100%" stop-color="#311042"/>
+    </linearGradient>
+    <linearGradient id="stageCard" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="680" rx="18" fill="url(#bg4)"/>
+
+  <!-- Title -->
+  <text x="600" y="44" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="26" font-weight="800" fill="#FFFFFF">Inside OmniCoder's Dual Brain: The Architect &amp; The 8-Stage Assembly Line</text>
+  <text x="600" y="70" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="15" fill="#94A3B8">Why separating "Creative Conversation" from "Mechanical Precision" keeps context clean</text>
+
+  <!-- LAYER 1: THE CONVERSATIONAL ARCHITECT (THE HEART) -->
+  <g transform="translate(50, 95)">
+    <rect width="1100" height="165" rx="16" fill="url(#heartGrad)" stroke="#EC4899" stroke-width="2"/>
+    <rect x="24" y="18" width="290" height="26" rx="13" fill="#831843"/>
+    <text x="169" y="35" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="800" fill="#FBCFE8">LAYER 1: THE CONVERSATIONAL HEART (pkg/ui)</text>
+
+    <text x="24" y="72" font-family="Inter, Segoe UI, sans-serif" font-size="21" font-weight="800" fill="#FFFFFF">Interactive Architect — With Guardrails Against Placeholder Stubs</text>
+    <text x="24" y="96" font-family="Inter, Segoe UI, sans-serif" font-size="13" fill="#F9A8D4">You speak plain English: <tspan fill="#FFFFFF" font-family="Consolas, monospace">omnicoder "Build a real-time drawing app"</tspan></text>
+
+    <!-- 4 Action Intent Pills -->
+    <g transform="translate(24, 112)">
+      <rect width="245" height="36" rx="8" fill="#0F172A" stroke="#F472B6" stroke-width="1.2"/>
+      <text x="122" y="23" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="700" fill="#F472B6">[ACTION:WRITE] Full Files</text>
+
+      <rect x="262" y="0" width="245" height="36" rx="8" fill="#0F172A" stroke="#38BDF8" stroke-width="1.2"/>
+      <text x="384" y="23" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="700" fill="#38BDF8">[ACTION:MAP] Instant GPS</text>
+
+      <rect x="524" y="0" width="255" height="36" rx="8" fill="#0F172A" stroke="#10B981" stroke-width="1.2"/>
+      <text x="651" y="23" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="700" fill="#10B981">[ACTION:BUILD] Compile &amp; Test</text>
+
+      <rect x="796" y="0" width="255" height="36" rx="8" fill="#0F172A" stroke="#FBBF24" stroke-width="1.2"/>
+      <text x="923" y="23" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="700" fill="#FBBF24">[ACTION:HEAL] Auto-Repair</text>
+    </g>
+  </g>
+
+  <!-- Handoff Arrow -->
+  <path d="M 600 260 L 600 292" stroke="#38BDF8" stroke-width="3"/>
+  <polygon points="592,288 608,288 600,300" fill="#38BDF8"/>
+  <rect x="445" y="266" width="310" height="24" rx="12" fill="#0C4A6E" stroke="#38BDF8" stroke-width="1"/>
+  <text x="600" y="282" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#E0F2FE">STRUCTURED HANDOFF TO MECHANICAL PIPELINE</text>
+
+  <!-- LAYER 2: THE 8-STAGE SUBTERRANEAN ENGINE -->
+  <g transform="translate(50, 304)">
+    <rect width="1100" height="340" rx="16" fill="#111827" stroke="#6366F1" stroke-width="2"/>
+    <rect x="24" y="16" width="350" height="26" rx="13" fill="#1E1B4B"/>
+    <text x="199" y="33" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="800" fill="#A5B4FC">LAYER 2: THE 8-STAGE MECHANICAL ENGINE (pkg/engine)</text>
+
+    <!-- Row 1 of Stages (Stages 1 to 4) -->
+    <!-- Stage 1 -->
+    <g transform="translate(24, 56)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#38BDF8" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#0C4A6E"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#38BDF8">1</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">City Map Scan</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Ranks central files using</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">AST PageRank in &lt;2s.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#38BDF8">Budget: &lt;1,024 tokens</text>
+    </g>
+
+    <!-- Stage 2 -->
+    <g transform="translate(292, 56)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#6366F1" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#1E1B4B"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#A5B4FC">2</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Ripple-Effect Check</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Traces up to 5 hops out to see</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">what connects to this code.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#A5B4FC">&lt;nav:ribbon&gt; &lt;160 tokens</text>
+    </g>
+
+    <!-- Stage 3 -->
+    <g transform="translate(560, 56)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#8B5CF6" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#2E1065"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#C4B5FD">3</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Exact Line Pinpoint</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Pulls target code lines + class</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">__init__ &amp; helper slices.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#C4B5FD">Sub-millisecond AST slice</text>
+    </g>
+
+    <!-- Stage 4 -->
+    <g transform="translate(828, 56)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#10B981" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#064E3B"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#34D399">4</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">300-Token Index Card</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Asks the AI one focused question</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">with root-cause analysis first.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#34D399">Strict Limit: &lt;300 tokens</text>
+    </g>
+
+    <!-- Row 2 of Stages (Stages 5 to 8) -->
+    <!-- Stage 5 -->
+    <g transform="translate(24, 196)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#F59E0B" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#451A03"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#FBBF24">5</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">5-Tier Surgical Stitch</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Relative indentation &amp; anchor</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">matcher splices edits cleanly.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#FBBF24">Multi-File Atomic Commit</text>
+    </g>
+
+    <!-- Stage 6 -->
+    <g transform="translate(292, 196)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#EC4899" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#500724"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#F472B6">6</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Self-Healing Loop</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Runs tests; repairs missing</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">imports (&lt;1ms) or iterates.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#F472B6">AST Pre-Heal + Beam K=3</text>
+    </g>
+
+    <!-- Stage 7 -->
+    <g transform="translate(560, 196)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#38BDF8" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#0C4A6E"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#38BDF8">7</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Clean Desk Reset</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Wipes temporary chat clutter to</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">zero; saves facts to 4D vault.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#38BDF8">Chat Noise = 0 Tokens</text>
+    </g>
+
+    <!-- Stage 8 -->
+    <g transform="translate(828, 196)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#10B981" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#064E3B"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#34D399">8</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Cryptographic Receipt</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Stamps a SHA-256 Merkle</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">receipt on every verified edit.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#34D399">Auditable Edit Lineage</text>
+    </g>
+  </g>
+</svg></div>
+    </section>
+
+    <section>
+      <h2>3. The 4D Software GPS: Remembering Without Re-Reading</h2>
+      <p>Instead of storing repository context inside a growing chat transcript, OmniCoder organizes your project into five structural zoom levels (0D through 4D)—from scalar file hashes and 160-token code ribbons up to multi-hop call graphs and compact edit receipts:</p>
+      <div class="svg-figure"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="100%" height="100%" role="img" aria-label="Diagram of the 5 zoom levels of OmniCoder volumetric memory from 0D Point Facts to 4D Time Vault">
+  <title>The 4D Software GPS: 5 Zoom Levels of Repository Memory (0D to 4D)</title>
+  <defs>
+    <linearGradient id="bg5" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090D16"/>
+      <stop offset="100%" stop-color="#1E1B4B"/>
+    </linearGradient>
+    <linearGradient id="dimCard" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="560" rx="18" fill="url(#bg5)"/>
+
+  <!-- Header -->
+  <text x="600" y="46" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="26" font-weight="800" fill="#FFFFFF">The 4D Software GPS: How OmniCoder Remembers Without Re-Reading</text>
+  <text x="600" y="74" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="15" fill="#94A3B8">Instead of treating code like a flat novel, OmniCoder organizes your project into 5 living zoom levels</text>
+
+  <!-- 5 Dimension Columns -->
+  <!-- 0D -->
+  <g transform="translate(36, 108)">
+    <rect width="212" height="410" rx="14" fill="url(#dimCard)" stroke="#38BDF8" stroke-width="2"/>
+    <rect x="20" y="20" width="64" height="28" rx="8" fill="#0C4A6E"/>
+    <text x="52" y="39" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="15" font-weight="800" fill="#38BDF8">0D</text>
+    <text x="20" y="76" font-family="Inter, Segoe UI, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">Point Facts</text>
+    <text x="20" y="98" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#38BDF8">"The Vital Signs"</text>
+
+    <!-- Icon: Single Glowing Point -->
+    <circle cx="106" cy="155" r="36" fill="#0C4A6E" fill-opacity="0.5" stroke="#38BDF8" stroke-width="1.5"/>
+    <circle cx="106" cy="155" r="10" fill="#38BDF8"/>
+
+    <text x="20" y="226" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="700" fill="#E2E8F0">What It Stores:</text>
+    <text x="20" y="248" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• Exact line counts</text>
+    <text x="20" y="268" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• File fingerprints (SHA-256)</text>
+    <text x="20" y="288" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• Pass/Fail status flags</text>
+
+    <rect x="16" y="325" width="180" height="68" rx="8" fill="#090D16" stroke="#1E293B"/>
+    <text x="26" y="346" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#38BDF8">Everyday Analogy:</text>
+    <text x="26" y="364" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#CBD5E1">Checking a house's address</text>
+    <text x="26" y="380" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#CBD5E1">and alarm light in 1 millisecond.</text>
+  </g>
+
+  <!-- 1D -->
+  <g transform="translate(264, 108)">
+    <rect width="212" height="410" rx="14" fill="url(#dimCard)" stroke="#6366F1" stroke-width="2"/>
+    <rect x="20" y="20" width="64" height="28" rx="8" fill="#1E1B4B"/>
+    <text x="52" y="39" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="15" font-weight="800" fill="#A5B4FC">1D</text>
+    <text x="20" y="76" font-family="Inter, Segoe UI, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">Code Ribbon</text>
+    <text x="20" y="98" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#A5B4FC">"The Subway Line"</text>
+
+    <!-- Icon: Linear Ribbon -->
+    <line x1="46" y1="155" x2="166" y2="155" stroke="#6366F1" stroke-width="4"/>
+    <circle cx="56" cy="155" r="7" fill="#A5B4FC"/>
+    <circle cx="106" cy="155" r="9" fill="#FFFFFF" stroke="#6366F1" stroke-width="3"/>
+    <circle cx="156" cy="155" r="7" fill="#A5B4FC"/>
+
+    <text x="20" y="226" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="700" fill="#E2E8F0">What It Stores:</text>
+    <text x="20" y="248" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• Exact 5–20 line code slices</text>
+    <text x="20" y="268" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• Compact &lt;nav:ribbon&gt;</text>
+    <text x="20" y="288" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• Strictly under 160 tokens</text>
+
+    <rect x="16" y="325" width="180" height="68" rx="8" fill="#090D16" stroke="#1E293B"/>
+    <text x="26" y="346" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#A5B4FC">Everyday Analogy:</text>
+    <text x="26" y="364" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#CBD5E1">The strip map above a train</text>
+    <text x="26" y="380" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#CBD5E1">door showing the next 5 stops.</text>
+  </g>
+
+  <!-- 2D -->
+  <g transform="translate(492, 108)">
+    <rect width="212" height="410" rx="14" fill="url(#dimCard)" stroke="#8B5CF6" stroke-width="2"/>
+    <rect x="20" y="20" width="64" height="28" rx="8" fill="#2E1065"/>
+    <text x="52" y="39" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="15" font-weight="800" fill="#C4B5FD">2D</text>
+    <text x="20" y="76" font-family="Inter, Segoe UI, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">Symbol Index</text>
+    <text x="20" y="98" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#C4B5FD">"The Yellow Pages"</text>
+
+    <!-- Icon: 2D Grid -->
+    <g transform="translate(66, 123)">
+      <rect width="80" height="64" rx="6" fill="none" stroke="#8B5CF6" stroke-width="2"/>
+      <line x1="0" y1="21" x2="80" y2="21" stroke="#8B5CF6" stroke-width="1.5"/>
+      <line x1="0" y1="43" x2="80" y2="43" stroke="#8B5CF6" stroke-width="1.5"/>
+      <line x1="35" y1="0" x2="35" y2="64" stroke="#8B5CF6" stroke-width="1.5"/>
+    </g>
+
+    <text x="20" y="226" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="700" fill="#E2E8F0">What It Stores:</text>
+    <text x="20" y="248" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• Every function &amp; class name</text>
+    <text x="20" y="268" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• Exact file &amp; line numbers</text>
+    <text x="20" y="288" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• BM25 search ranking</text>
+
+    <rect x="16" y="325" width="180" height="68" rx="8" fill="#090D16" stroke="#1E293B"/>
+    <text x="26" y="346" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#C4B5FD">Everyday Analogy:</text>
+    <text x="26" y="364" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#CBD5E1">A building directory in the</text>
+    <text x="26" y="380" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#CBD5E1">lobby listing every office.</text>
+  </g>
+
+  <!-- 3D -->
+  <g transform="translate(720, 108)">
+    <rect width="212" height="410" rx="14" fill="url(#dimCard)" stroke="#10B981" stroke-width="2"/>
+    <rect x="20" y="20" width="64" height="28" rx="8" fill="#064E3B"/>
+    <text x="52" y="39" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="15" font-weight="800" fill="#34D399">3D</text>
+    <text x="20" y="76" font-family="Inter, Segoe UI, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">Ripple Web</text>
+    <text x="20" y="98" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#34D399">"The Wiring Diagram"</text>
+
+    <!-- Icon: 3D Graph -->
+    <g transform="translate(106, 155)">
+      <line x1="0" y1="-26" x2="-32" y2="20" stroke="#10B981" stroke-width="2"/>
+      <line x1="0" y1="-26" x2="32" y2="20" stroke="#10B981" stroke-width="2"/>
+      <line x1="-32" y1="20" x2="32" y2="20" stroke="#10B981" stroke-width="1.5" stroke-dasharray="3 3"/>
+      <circle cx="0" cy="-26" r="9" fill="#10B981"/>
+      <circle cx="-32" cy="20" r="7" fill="#34D399"/>
+      <circle cx="32" cy="20" r="7" fill="#34D399"/>
+    </g>
+
+    <text x="20" y="226" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="700" fill="#E2E8F0">What It Stores:</text>
+    <text x="20" y="248" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• Who calls whom (5 hops)</text>
+    <text x="20" y="268" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• Class setup (__init__) slices</text>
+    <text x="20" y="288" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• Helper method links</text>
+
+    <rect x="16" y="325" width="180" height="68" rx="8" fill="#090D16" stroke="#1E293B"/>
+    <text x="26" y="346" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#34D399">Everyday Analogy:</text>
+    <text x="26" y="364" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#CBD5E1">Seeing which rooms lose</text>
+    <text x="26" y="380" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#CBD5E1">power if you flip Breaker #4.</text>
+  </g>
+
+  <!-- 4D -->
+  <g transform="translate(948, 108)">
+    <rect width="216" height="410" rx="14" fill="url(#dimCard)" stroke="#F59E0B" stroke-width="2"/>
+    <rect x="20" y="20" width="64" height="28" rx="8" fill="#451A03"/>
+    <text x="52" y="39" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="15" font-weight="800" fill="#FBBF24">4D</text>
+    <text x="20" y="76" font-family="Inter, Segoe UI, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">Time Vault</text>
+    <text x="20" y="98" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#FBBF24">"The Flight Recorder"</text>
+
+    <!-- Icon: Time Layers -->
+    <g transform="translate(108, 155)">
+      <rect x="-36" y="-22" width="48" height="32" rx="4" fill="#451A03" stroke="#F59E0B" stroke-width="1.5"/>
+      <rect x="-24" y="-12" width="48" height="32" rx="4" fill="#78350F" stroke="#FBBF24" stroke-width="1.5"/>
+      <rect x="-12" y="-2" width="48" height="32" rx="4" fill="#F59E0B"/>
+    </g>
+
+    <text x="20" y="226" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="700" fill="#E2E8F0">What It Stores:</text>
+    <text x="20" y="248" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• Actuation receipts (&lt;170 tok)</text>
+    <text x="20" y="268" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• Compare-And-Swap locks</text>
+    <text x="20" y="288" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">• Merkle cryptographic trail</text>
+
+    <rect x="16" y="325" width="184" height="68" rx="8" fill="#090D16" stroke="#1E293B"/>
+    <text x="26" y="346" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#FBBF24">Everyday Analogy:</text>
+    <text x="26" y="364" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#CBD5E1">An airplane's black box that</text>
+    <text x="26" y="380" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#CBD5E1">remembers every past repair.</text>
+  </g>
+</svg></div>
+    </section>
+
+    <section>
+      <h2>4. The Swarm Forge: Coordinated Multi-Worker Builds</h2>
+      <p>When multiple agents edit a shared directory without coordination, they overwrite files or drift on interfaces. OmniCoder&apos;s <strong>Swarm Forge</strong> freezes shared interfaces in Wave 0, isolates workers in sub-85ms Git worktrees, and verifies combined changes in a Two-Phase Commit (2PC) staging gate—achieving a <strong>4.07x orchestration overhead speedup</strong> (582.68 ms to 143.02 ms across 3 workers on a synthetic 7-module Go build benchmark, excluding LLM inference latency):</p>
+      <div class="svg-figure"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 620" width="100%" height="100%" role="img" aria-label="Diagram of OmniCoder Swarm Forge showing Wave 0 interface freeze, isolated git worktrees, and Two-Phase Commit staging gate">
+  <title>The Swarm Forge: Parallel Worktree Isolation and Two-Phase Commit Merge Gate</title>
+  <defs>
+    <linearGradient id="bg6" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090D16"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="waveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E1B4B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="620" rx="18" fill="url(#bg6)"/>
+
+  <!-- Header -->
+  <text x="600" y="44" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="25" font-weight="800" fill="#FFFFFF">The Swarm Forge: Coordinated Parallel Worktrees &amp; Two-Phase Commit</text>
+  <text x="600" y="72" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="15" fill="#94A3B8">How OmniCoder isolates parallel builders and validates combined changes before touching the main branch</text>
+
+  <!-- Step 1: Wave 0 Blueprint Freeze -->
+  <g transform="translate(45, 102)">
+    <rect width="250" height="470" rx="14" fill="#1E293B" fill-opacity="0.65" stroke="#F59E0B" stroke-width="2"/>
+    <rect x="20" y="20" width="110" height="26" rx="13" fill="#451A03"/>
+    <text x="75" y="37" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="800" fill="#FBBF24">STEP 1: WAVE 0</text>
+    <text x="20" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="19" font-weight="800" fill="#FFFFFF">Freeze the Plugs</text>
+    <text x="20" y="96" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#FCD34D">Interface Crystallization</text>
+
+    <rect x="20" y="118" width="210" height="145" rx="10" fill="#090D16" stroke="#78350F" stroke-width="1.5"/>
+    <text x="125" y="146" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#FBBF24">Shared Blueprint Contract</text>
+    <text x="34" y="174" font-family="Consolas, monospace" font-size="11" fill="#E2E8F0">type Engine interface {</text>
+    <text x="34" y="194" font-family="Consolas, monospace" font-size="11" fill="#34D399">  Step(dt Decimal) error</text>
+    <text x="34" y="214" font-family="Consolas, monospace" font-size="11" fill="#38BDF8">  Sync() MerkleSeal</text>
+    <text x="34" y="234" font-family="Consolas, monospace" font-size="11" fill="#E2E8F0">}</text>
+
+    <text x="20" y="294" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="700" fill="#FFFFFF">Why It Matters:</text>
+    <text x="20" y="316" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Before parallel workers start,</text>
+    <text x="20" y="334" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">shared types and function</text>
+    <text x="20" y="352" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">signatures are committed so</text>
+    <text x="20" y="370" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">modules compile against one API.</text>
+
+    <rect x="20" y="402" width="210" height="46" rx="8" fill="#451A03"/>
+    <text x="125" y="430" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#FDE68A">Shared Interface Contract</text>
+  </g>
+
+  <!-- Step 2: Parallel Worktrees -->
+  <g transform="translate(320, 102)">
+    <rect width="310" height="470" rx="14" fill="#1E293B" fill-opacity="0.65" stroke="#38BDF8" stroke-width="2"/>
+    <rect x="20" y="20" width="140" height="26" rx="13" fill="#0C4A6E"/>
+    <text x="90" y="37" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="800" fill="#38BDF8">STEP 2: ISOLATION</text>
+    <text x="20" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="19" font-weight="800" fill="#FFFFFF">Private Workbenches</text>
+    <text x="20" y="96" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#7DD3FC">Sub-85ms Git Worktrees + Junctions</text>
+
+    <!-- 3 Worker Boxes -->
+    <g transform="translate(20, 118)">
+      <rect width="270" height="72" rx="10" fill="#090D16" stroke="#0284C7" stroke-width="1.5"/>
+      <circle cx="30" cy="36" r="14" fill="#0C4A6E"/>
+      <text x="30" y="41" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#38BDF8">W1</text>
+      <text x="56" y="30" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="700" fill="#FFFFFF">Builder A: Core &amp; Engine</text>
+      <text x="56" y="50" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#94A3B8">Isolated worktree • Spun up in 82ms</text>
+    </g>
+
+    <g transform="translate(20, 202)">
+      <rect width="270" height="72" rx="10" fill="#090D16" stroke="#6366F1" stroke-width="1.5"/>
+      <circle cx="30" cy="36" r="14" fill="#1E1B4B"/>
+      <text x="30" y="41" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#A5B4FC">W2</text>
+      <text x="56" y="30" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="700" fill="#FFFFFF">Builder B: Network Engine</text>
+      <text x="56" y="50" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#94A3B8">Isolated worktree • Spun up in 79ms</text>
+    </g>
+
+    <g transform="translate(20, 286)">
+      <rect width="270" height="72" rx="10" fill="#090D16" stroke="#10B981" stroke-width="1.5"/>
+      <circle cx="30" cy="36" r="14" fill="#064E3B"/>
+      <text x="30" y="41" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">W3</text>
+      <text x="56" y="30" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="700" fill="#FFFFFF">Builder C: Storage &amp; Audit</text>
+      <text x="56" y="50" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#94A3B8">Isolated worktree • Spun up in 84ms</text>
+    </g>
+
+    <rect x="20" y="402" width="270" height="46" rx="8" fill="#0C4A6E"/>
+    <text x="155" y="430" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#BAE6FD">Disjoint File Ownership Per Wave</text>
+  </g>
+
+  <!-- Step 3: 2PC Reconciler & Results -->
+  <g transform="translate(655, 102)">
+    <rect width="500" height="470" rx="14" fill="#1E293B" fill-opacity="0.65" stroke="#10B981" stroke-width="2"/>
+    <rect x="20" y="20" width="195" height="26" rx="13" fill="#064E3B"/>
+    <text x="117" y="37" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="800" fill="#34D399">STEP 3: SAFE MERGE &amp; PROOF</text>
+    <text x="20" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="19" font-weight="800" fill="#FFFFFF">Two-Phase Commit (2PC) Inspection Gate</text>
+    <text x="20" y="96" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#6EE7B7">Nothing touches your main branch until combined changes pass tests</text>
+
+    <!-- Staging Flowchart -->
+    <g transform="translate(20, 118)">
+      <rect width="460" height="128" rx="10" fill="#090D16" stroke="#065F46" stroke-width="1.5"/>
+      <text x="24" y="30" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#34D399">How the Staging Gate Works:</text>
+      <text x="24" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#E2E8F0">1. <tspan font-weight="700" fill="#FFFFFF">Dry-Run Staging Room:</tspan> Combines all builders' work in a staging tree.</text>
+      <text x="24" y="80" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#E2E8F0">2. <tspan font-weight="700" fill="#FFFFFF">Integration Check:</tspan> Runs full compiler &amp; test suite on combined tree.</text>
+      <text x="24" y="104" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#E2E8F0">3. <tspan font-weight="700" fill="#FFFFFF">Atomic Commit:</tspan> Promotes passing code + prunes temp worktrees.</text>
+    </g>
+
+    <!-- Verified Benchmark Box: 7-Module Go Workspace -->
+    <g transform="translate(20, 266)">
+      <rect width="460" height="182" rx="12" fill="#064E3B" fill-opacity="0.45" stroke="#10B981" stroke-width="1.5"/>
+      <text x="24" y="28" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#A7F3D0">SYNTHETIC ORCHESTRATION BENCHMARK (7 GO MODULES)</text>
+      <text x="24" y="45" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#6EE7B7">Measures worktree + compile + merge overhead (excludes LLM inference time)</text>
+
+      <text x="24" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Serial Execution:</text>
+      <rect x="200" y="61" width="220" height="18" rx="4" fill="#475569"/>
+      <text x="410" y="74" text-anchor="end" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#FFFFFF">582.68 ms</text>
+
+      <text x="24" y="104" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#34D399">Swarm Wave Execution:</text>
+      <rect x="200" y="91" width="54" height="18" rx="4" fill="#10B981"/>
+      <text x="264" y="104" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#34D399">143.02 ms (4.07x Overhead Speedup)</text>
+
+      <line x1="24" y1="122" x2="436" y2="122" stroke="#065F46" stroke-width="1"/>
+      <text x="24" y="146" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="700" fill="#FFFFFF">✓ 42 / 42 Package Tests Passing   ✓ 10.42 MB Native Binary Built</text>
+      <text x="24" y="168" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#6EE7B7">✓ 0 Merge Collisions   ✓ Worktrees Pruned Cleanly</text>
+    </g>
+  </g>
+</svg></div>
+    </section>
+
+    <section>
+      <h2>5. Auto-Heal &amp; The 3-Candidate Tournament</h2>
+      <p>When a test fails, OmniCoder runs a deterministic Go pre-healer for missing standard-library imports (&lt;1ms, zero LLM tokens), splices code through a 5-tier indentation-aware matcher, requires a concise <code>root_cause</code> diagnosis field before emitting code, and evaluates up to three candidate patches (Alpha, Beta, Gamma) in parallel:</p>
+      <div class="svg-figure"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="100%" height="100%" role="img" aria-label="Diagram of OmniCoder 3-layer self-repair system: deterministic pre-healer, 5-tier code splicer, and 3-candidate tournament">
+  <title>How OmniCoder Repairs Code: Pre-Healer, 5-Tier Splicer, and 3-Candidate Tournament</title>
+  <defs>
+    <linearGradient id="bg7" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090D16"/>
+      <stop offset="100%" stop-color="#1E1B4B"/>
+    </linearGradient>
+    <linearGradient id="card7" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="560" rx="18" fill="url(#bg7)"/>
+
+  <!-- Header -->
+  <text x="600" y="44" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="26" font-weight="800" fill="#FFFFFF">How OmniCoder Repairs Mistakes: Auto-Heal &amp; The 3-Candidate Tournament</text>
+  <text x="600" y="72" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="15" fill="#94A3B8">Combining deterministic AST pre-healing, fuzzy indentation splicing, and parallel candidate evaluation</text>
+
+  <!-- Step 1: Deterministic Pre-Heal -->
+  <g transform="translate(42, 106)">
+    <rect width="250" height="410" rx="14" fill="url(#card7)" stroke="#38BDF8" stroke-width="2"/>
+    <rect x="18" y="18" width="162" height="26" rx="13" fill="#0C4A6E"/>
+    <text x="99" y="35" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="800" fill="#38BDF8">DEFENSE 1: PRE-HEAL</text>
+    <text x="18" y="72" font-family="Inter, Segoe UI, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">Deterministic Syntax &amp;</text>
+    <text x="18" y="94" font-family="Inter, Segoe UI, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">Import Injector</text>
+
+    <rect x="18" y="116" width="214" height="120" rx="10" fill="#090D16" stroke="#0284C7"/>
+    <text x="30" y="142" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#38BDF8">Missing standard import?</text>
+    <text x="30" y="164" font-family="Consolas, monospace" font-size="11" fill="#FDA4AF">NameError: 'math' missing</text>
+    <text x="30" y="188" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#34D399">Injected Deterministically:</text>
+    <text x="30" y="210" font-family="Consolas, monospace" font-size="11" fill="#6EE7B7">+ import math</text>
+
+    <text x="18" y="268" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Before spending an LLM turn,</text>
+    <text x="18" y="286" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">OmniCoder's Go pre-healer</text>
+    <text x="18" y="304" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">resolves known missing stdlib</text>
+    <text x="18" y="322" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">imports in under 1 millisecond.</text>
+
+    <rect x="18" y="350" width="214" height="42" rx="8" fill="#0C4A6E"/>
+    <text x="125" y="376" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#BAE6FD">Zero LLM Tokens Used</text>
+  </g>
+
+  <!-- Step 2: 5-Tier Surgical Splicer -->
+  <g transform="translate(314, 106)">
+    <rect width="265" height="410" rx="14" fill="url(#card7)" stroke="#8B5CF6" stroke-width="2"/>
+    <rect x="18" y="18" width="165" height="26" rx="13" fill="#2E1065"/>
+    <text x="100" y="35" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="800" fill="#C4B5FD">DEFENSE 2: 5-TIER ZIP</text>
+    <text x="18" y="72" font-family="Inter, Segoe UI, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">5-Tier Surgical</text>
+    <text x="18" y="94" font-family="Inter, Segoe UI, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">Code Splicer</text>
+
+    <!-- 5 Tiers stack -->
+    <g transform="translate(18, 114)">
+      <rect width="229" height="34" rx="6" fill="#1E1B4B" stroke="#6366F1"/>
+      <text x="14" y="22" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#E0E7FF">Tier 1: Exact Character Match</text>
+
+      <rect y="42" width="229" height="34" rx="6" fill="#1E1B4B" stroke="#6366F1"/>
+      <text x="14" y="64" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#E0E7FF">Tier 2: Trimmed End-Spaces</text>
+
+      <rect y="84" width="229" height="34" rx="6" fill="#1E1B4B" stroke="#8B5CF6"/>
+      <text x="14" y="106" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#DDD6FE">Tier 3: Blank-Line Tolerant</text>
+
+      <rect y="126" width="229" height="34" rx="6" fill="#2E1065" stroke="#A855F7"/>
+      <text x="14" y="148" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#F3E8FF">Tier 4: Relative Indent Alignment</text>
+
+      <rect y="168" width="229" height="34" rx="6" fill="#3B0764" stroke="#D946EF"/>
+      <text x="14" y="190" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#FAE8FF">Tier 5: Ellipsis Anchor Matching</text>
+    </g>
+
+    <rect x="18" y="350" width="229" height="42" rx="8" fill="#2E1065"/>
+    <text x="132" y="376" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#DDD6FE">Resilient Indentation Fallback</text>
+  </g>
+
+  <!-- Step 3: The 3-Idea Speculative Tournament -->
+  <g transform="translate(601, 106)">
+    <rect width="557" height="410" rx="14" fill="url(#card7)" stroke="#10B981" stroke-width="2"/>
+    <rect x="20" y="18" width="225" height="26" rx="13" fill="#064E3B"/>
+    <text x="132" y="35" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="800" fill="#34D399">DEFENSE 3: BEAM-K TOURNAMENT</text>
+    <text x="20" y="72" font-family="Inter, Segoe UI, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF">Three Competing Repair Candidates Race in Parallel</text>
+    <text x="20" y="94" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#6EE7B7">Evaluates k=3 candidate patches against the reproducer &amp; existing repo tests</text>
+
+    <!-- 3 Candidate Boxes -->
+    <g transform="translate(20, 114)">
+      <rect width="162" height="145" rx="10" fill="#090D16" stroke="#38BDF8" stroke-width="1.5"/>
+      <text x="81" y="28" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#38BDF8">Candidate Alpha (α)</text>
+      <text x="81" y="48" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#CBD5E1">Primary Window</text>
+      <text x="81" y="66" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#94A3B8">Direct Surgical Fix</text>
+      <rect x="18" y="88" width="126" height="38" rx="6" fill="#064E3B"/>
+      <text x="81" y="112" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">✓ TESTS PASS</text>
+    </g>
+
+    <g transform="translate(197, 114)">
+      <rect width="162" height="145" rx="10" fill="#090D16" stroke="#A855F7" stroke-width="1.5"/>
+      <text x="81" y="28" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#C4B5FD">Candidate Beta (β)</text>
+      <text x="81" y="48" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#CBD5E1">Secondary Window</text>
+      <text x="81" y="66" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#94A3B8">Helper Method Fix</text>
+      <rect x="18" y="88" width="126" height="38" rx="6" fill="#1E293B"/>
+      <text x="81" y="112" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#94A3B8">Backup Candidate</text>
+    </g>
+
+    <g transform="translate(374, 114)">
+      <rect width="162" height="145" rx="10" fill="#090D16" stroke="#F59E0B" stroke-width="1.5"/>
+      <text x="81" y="28" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#FBBF24">Candidate Gamma (γ)</text>
+      <text x="81" y="48" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#CBD5E1">Boundary Guard</text>
+      <text x="81" y="66" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" fill="#94A3B8">Edge-Case Shield</text>
+      <rect x="18" y="88" width="126" height="38" rx="6" fill="#1E293B"/>
+      <text x="81" y="112" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#94A3B8">Backup Candidate</text>
+    </g>
+
+    <!-- Root-Cause First Callout -->
+    <g transform="translate(20, 276)">
+      <rect width="516" height="60" rx="10" fill="#090D16" stroke="#10B981" stroke-width="1.2"/>
+      <text x="18" y="24" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">&quot;Diagnosis Before Surgery&quot; Schema (root_cause First):</text>
+      <text x="18" y="44" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#E2E8F0">Every repair card requires a concise root_cause diagnosis field before emitting code.</text>
+    </g>
+
+    <rect x="20" y="350" width="516" height="42" rx="8" fill="#064E3B"/>
+    <text x="278" y="376" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#A7F3D0">Scored by Reproducer Pass + Pre-Existing Repo Test Verification</text>
+  </g>
+</svg></div>
+    </section>
+
+    <section>
+      <h2>6. Security Boundaries &amp; Engineering Characteristics</h2>
+      <p>Delivered as a single 16 MB pure-Go binary (<code>omnicoder.exe</code> / <code>omnicoder</code>), OmniCoder enforces a 19-check workspace path fence, executes candidate checks in rollback-capable snapshots, redacts secret patterns in audit logs, and exposes 20 MCP tools for VS Code, Antigravity, Cursor, and Cline:</p>
+      <div class="svg-figure"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 580" width="100%" height="100%" role="img" aria-label="Diagram of OmniCoder security boundaries and measured engineering characteristics">
+  <title>Security Architecture and Measured Engineering Characteristics</title>
+  <defs>
+    <linearGradient id="bg8" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090D16"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="vaultGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="580" rx="18" fill="url(#bg8)"/>
+
+  <!-- Header -->
+  <text x="600" y="44" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="26" font-weight="800" fill="#FFFFFF">Built Like an Armored Vault — Security &amp; Engineering Characteristics</text>
+  <text x="600" y="72" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="15" fill="#94A3B8">Sandboxed workspace containment, secret redaction, and single-binary deployment</text>
+
+  <!-- LEFT: The Armored Security Vault -->
+  <g transform="translate(45, 102)">
+    <rect width="535" height="440" rx="16" fill="url(#vaultGrad)" stroke="#38BDF8" stroke-width="2"/>
+    <rect x="24" y="20" width="210" height="26" rx="13" fill="#0C4A6E"/>
+    <text x="129" y="37" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="800" fill="#38BDF8">SAFETY &amp; PRIVACY BY DESIGN</text>
+    <text x="24" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="21" font-weight="800" fill="#FFFFFF">4 Layers of Built-In Protection</text>
+
+    <!-- Shield 1 -->
+    <g transform="translate(24, 98)">
+      <rect width="487" height="72" rx="10" fill="#090D16" stroke="#1E293B" stroke-width="1.5"/>
+      <circle cx="32" cy="36" r="16" fill="#0C4A6E"/>
+      <text x="32" y="41" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#38BDF8">19</text>
+      <text x="62" y="28" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">19-Check Folder Fence (Path Containment)</text>
+      <text x="62" y="48" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">File operations are confined to the workspace root and checked</text>
+      <text x="62" y="64" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">against 19 path-traversal and symlink escape patterns.</text>
+    </g>
+
+    <!-- Shield 2 -->
+    <g transform="translate(24, 180)">
+      <rect width="487" height="72" rx="10" fill="#090D16" stroke="#1E293B" stroke-width="1.5"/>
+      <circle cx="32" cy="36" r="16" fill="#1E1B4B"/>
+      <text x="32" y="41" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#A5B4FC">VM</text>
+      <text x="62" y="28" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Snapshot &amp; Rollback Sandbox</text>
+      <text x="62" y="48" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Speculative candidate patches are tested in isolated snapshots;</text>
+      <text x="62" y="64" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">failed candidates roll back without polluting the working tree.</text>
+    </g>
+
+    <!-- Shield 3 -->
+    <g transform="translate(24, 262)">
+      <rect width="487" height="72" rx="10" fill="#090D16" stroke="#1E293B" stroke-width="1.5"/>
+      <circle cx="32" cy="36" r="16" fill="#064E3B"/>
+      <text x="32" y="41" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">0</text>
+      <text x="62" y="28" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Automatic Secret Redaction in Audit Logs</text>
+      <text x="62" y="48" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">API keys, bearer tokens, and credentials matching secret patterns</text>
+      <text x="62" y="64" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">are redacted before writing tool traces to disk.</text>
+    </g>
+
+    <!-- Shield 4 -->
+    <g transform="translate(24, 344)">
+      <rect width="487" height="72" rx="10" fill="#090D16" stroke="#1E293B" stroke-width="1.5"/>
+      <circle cx="32" cy="36" r="16" fill="#451A03"/>
+      <text x="32" y="41" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#FBBF24">#</text>
+      <text x="62" y="28" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Deterministic Fixed-Point Candidate Scoring</text>
+      <text x="62" y="48" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Tournament candidate ranking uses exact decimal arithmetic</text>
+      <text x="62" y="64" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">(shopspring/decimal) for reproducible tie-breaking across OSes.</text>
+    </g>
+  </g>
+
+  <!-- RIGHT: Architectural Comparison Table -->
+  <g transform="translate(620, 102)">
+    <rect width="535" height="440" rx="16" fill="url(#vaultGrad)" stroke="#10B981" stroke-width="2"/>
+    <rect x="24" y="20" width="235" height="26" rx="13" fill="#064E3B"/>
+    <text x="141" y="37" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="800" fill="#34D399">ARCHITECTURAL COMPARISON</text>
+    <text x="24" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="21" font-weight="800" fill="#FFFFFF">Chat-Loop Agents vs. OmniCoder-ICX</text>
+
+    <!-- Comparison Table Inside SVG -->
+    <g transform="translate(24, 98)">
+      <rect width="487" height="224" rx="10" fill="#090D16" stroke="#065F46" stroke-width="1.5"/>
+
+      <!-- Table Header -->
+      <rect width="487" height="38" rx="10" fill="#064E3B"/>
+      <text x="18" y="24" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#A7F3D0">DIMENSION</text>
+      <text x="195" y="24" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#FDA4AF">CHAT-LOOP AGENTS</text>
+      <text x="340" y="24" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">OMNICODER-ICX</text>
+
+      <!-- Row 1 -->
+      <text x="18" y="68" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#E2E8F0">Prompt Context / Step</text>
+      <text x="195" y="68" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">15k – 50k+ tokens</text>
+      <text x="340" y="68" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">&lt;300 tokens / card</text>
+      <line x1="18" y1="82" x2="469" y2="82" stroke="#1E293B"/>
+
+      <!-- Row 2 -->
+      <text x="18" y="110" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#E2E8F0">Cross-Turn Memory</text>
+      <text x="195" y="110" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Full transcript replay</text>
+      <text x="340" y="110" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">0D–4D Lattice Vault</text>
+      <line x1="18" y1="124" x2="469" y2="124" stroke="#1E293B"/>
+
+      <!-- Row 3 -->
+      <text x="18" y="152" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#E2E8F0">Parallel Isolation</text>
+      <text x="195" y="152" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Shared dir or cloud VM</text>
+      <text x="340" y="152" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">Git worktrees (&lt;85ms)</text>
+      <line x1="18" y1="166" x2="469" y2="166" stroke="#1E293B"/>
+
+      <!-- Row 4 -->
+      <text x="18" y="198" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#E2E8F0">Runtime Dependencies</text>
+      <text x="195" y="198" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Python + container stack</text>
+      <text x="340" y="198" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">Single 16 MB Go binary</text>
+    </g>
+
+    <!-- Bottom Plug-and-Play Callout -->
+    <g transform="translate(24, 338)">
+      <rect width="487" height="78" rx="10" fill="#1E1B4B" stroke="#6366F1" stroke-width="1.5"/>
+      <text x="20" y="28" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">20 Universal Plug-and-Play Tools (MCP Standard)</text>
+      <text x="20" y="48" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#C7D2FE">Works standalone in your terminal OR plugs directly into VS Code,</text>
+      <text x="20" y="66" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#C7D2FE">Antigravity, Cursor, and Cline—with cloud or local open-weights models.</text>
+    </g>
+  </g>
+</svg></div>
+    </section>
+
+    <footer>
+      <p><strong>Calera Computing, Inc. • OmniCoder-ICX v1.0 Architecture Paper</strong></p>
+      <p style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">OmniCoder standalone (without ICX) is licensed under the Apache License, Version 2.0. The Calera ICX platform is proprietary to Calera Computing, Inc. and governed separately under the licensing terms and Stewardship Doctrine (The Ezekiel Gate) at <a href="https://icx.caleralabs.com" style="color: #38bdf8;">https://icx.caleralabs.com</a> (<a href="mailto:support@caleralabs.com" style="color: #38bdf8;">support@caleralabs.com</a>).</p>
+    </footer>
+  </div>
+</body>
+</html>

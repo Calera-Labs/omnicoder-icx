@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 580" width="100%" height="100%" role="img" aria-label="Diagram of OmniCoder security boundaries and measured engineering characteristics">
+  <title>Security Architecture and Measured Engineering Characteristics</title>
+  <defs>
+    <linearGradient id="bg8" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090D16"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="vaultGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="580" rx="18" fill="url(#bg8)"/>
+
+  <!-- Header -->
+  <text x="600" y="44" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="26" font-weight="800" fill="#FFFFFF">Built Like an Armored Vault — Security &amp; Engineering Characteristics</text>
+  <text x="600" y="72" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="15" fill="#94A3B8">Sandboxed workspace containment, secret redaction, and single-binary deployment</text>
+
+  <!-- LEFT: The Armored Security Vault -->
+  <g transform="translate(45, 102)">
+    <rect width="535" height="440" rx="16" fill="url(#vaultGrad)" stroke="#38BDF8" stroke-width="2"/>
+    <rect x="24" y="20" width="210" height="26" rx="13" fill="#0C4A6E"/>
+    <text x="129" y="37" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="800" fill="#38BDF8">SAFETY &amp; PRIVACY BY DESIGN</text>
+    <text x="24" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="21" font-weight="800" fill="#FFFFFF">4 Layers of Built-In Protection</text>
+
+    <!-- Shield 1 -->
+    <g transform="translate(24, 98)">
+      <rect width="487" height="72" rx="10" fill="#090D16" stroke="#1E293B" stroke-width="1.5"/>
+      <circle cx="32" cy="36" r="16" fill="#0C4A6E"/>
+      <text x="32" y="41" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#38BDF8">19</text>
+      <text x="62" y="28" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">19-Check Folder Fence (Path Containment)</text>
+      <text x="62" y="48" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">File operations are confined to the workspace root and checked</text>
+      <text x="62" y="64" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">against 19 path-traversal and symlink escape patterns.</text>
+    </g>
+
+    <!-- Shield 2 -->
+    <g transform="translate(24, 180)">
+      <rect width="487" height="72" rx="10" fill="#090D16" stroke="#1E293B" stroke-width="1.5"/>
+      <circle cx="32" cy="36" r="16" fill="#1E1B4B"/>
+      <text x="32" y="41" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#A5B4FC">VM</text>
+      <text x="62" y="28" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Snapshot &amp; Rollback Sandbox</text>
+      <text x="62" y="48" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Speculative candidate patches are tested in isolated snapshots;</text>
+      <text x="62" y="64" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">failed candidates roll back without polluting the working tree.</text>
+    </g>
+
+    <!-- Shield 3 -->
+    <g transform="translate(24, 262)">
+      <rect width="487" height="72" rx="10" fill="#090D16" stroke="#1E293B" stroke-width="1.5"/>
+      <circle cx="32" cy="36" r="16" fill="#064E3B"/>
+      <text x="32" y="41" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">0</text>
+      <text x="62" y="28" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Automatic Secret Redaction in Audit Logs</text>
+      <text x="62" y="48" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">API keys, bearer tokens, and credentials matching secret patterns</text>
+      <text x="62" y="64" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">are redacted before writing tool traces to disk.</text>
+    </g>
+
+    <!-- Shield 4 -->
+    <g transform="translate(24, 344)">
+      <rect width="487" height="72" rx="10" fill="#090D16" stroke="#1E293B" stroke-width="1.5"/>
+      <circle cx="32" cy="36" r="16" fill="#451A03"/>
+      <text x="32" y="41" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#FBBF24">#</text>
+      <text x="62" y="28" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Deterministic Fixed-Point Candidate Scoring</text>
+      <text x="62" y="48" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Tournament candidate ranking uses exact decimal arithmetic</text>
+      <text x="62" y="64" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">(shopspring/decimal) for reproducible tie-breaking across OSes.</text>
+    </g>
+  </g>
+
+  <!-- RIGHT: Architectural Comparison Table -->
+  <g transform="translate(620, 102)">
+    <rect width="535" height="440" rx="16" fill="url(#vaultGrad)" stroke="#10B981" stroke-width="2"/>
+    <rect x="24" y="20" width="235" height="26" rx="13" fill="#064E3B"/>
+    <text x="141" y="37" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="800" fill="#34D399">ARCHITECTURAL COMPARISON</text>
+    <text x="24" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="21" font-weight="800" fill="#FFFFFF">Chat-Loop Agents vs. OmniCoder-ICX</text>
+
+    <!-- Comparison Table Inside SVG -->
+    <g transform="translate(24, 98)">
+      <rect width="487" height="224" rx="10" fill="#090D16" stroke="#065F46" stroke-width="1.5"/>
+
+      <!-- Table Header -->
+      <rect width="487" height="38" rx="10" fill="#064E3B"/>
+      <text x="18" y="24" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#A7F3D0">DIMENSION</text>
+      <text x="195" y="24" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#FDA4AF">CHAT-LOOP AGENTS</text>
+      <text x="340" y="24" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">OMNICODER-ICX</text>
+
+      <!-- Row 1 -->
+      <text x="18" y="68" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#E2E8F0">Prompt Context / Step</text>
+      <text x="195" y="68" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">15k – 50k+ tokens</text>
+      <text x="340" y="68" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">&lt;300 tokens / card</text>
+      <line x1="18" y1="82" x2="469" y2="82" stroke="#1E293B"/>
+
+      <!-- Row 2 -->
+      <text x="18" y="110" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#E2E8F0">Cross-Turn Memory</text>
+      <text x="195" y="110" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Full transcript replay</text>
+      <text x="340" y="110" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">0D–4D Lattice Vault</text>
+      <line x1="18" y1="124" x2="469" y2="124" stroke="#1E293B"/>
+
+      <!-- Row 3 -->
+      <text x="18" y="152" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#E2E8F0">Parallel Isolation</text>
+      <text x="195" y="152" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Shared dir or cloud VM</text>
+      <text x="340" y="152" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">Git worktrees (&lt;85ms)</text>
+      <line x1="18" y1="166" x2="469" y2="166" stroke="#1E293B"/>
+
+      <!-- Row 4 -->
+      <text x="18" y="198" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#E2E8F0">Runtime Dependencies</text>
+      <text x="195" y="198" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Python + container stack</text>
+      <text x="340" y="198" font-family="Inter, Segoe UI, sans-serif" font-size="12" font-weight="800" fill="#34D399">Single 16 MB Go binary</text>
+    </g>
+
+    <!-- Bottom Plug-and-Play Callout -->
+    <g transform="translate(24, 338)">
+      <rect width="487" height="78" rx="10" fill="#1E1B4B" stroke="#6366F1" stroke-width="1.5"/>
+      <text x="20" y="28" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">20 Universal Plug-and-Play Tools (MCP Standard)</text>
+      <text x="20" y="48" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#C7D2FE">Works standalone in your terminal OR plugs directly into VS Code,</text>
+      <text x="20" y="66" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#C7D2FE">Antigravity, Cursor, and Cline—with cloud or local open-weights models.</text>
+    </g>
+  </g>
+</svg>

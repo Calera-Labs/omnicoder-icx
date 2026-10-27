@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" width="100%" height="100%" role="img" aria-label="Diagram of OmniCoder dual-layer architecture showing Layer 1 Conversational Architect and Layer 2 8-Stage Mechanical Engine">
+  <title>Inside OmniCoder's Dual Brain: Conversational Architect and 8-Stage Mechanical Pipeline</title>
+  <defs>
+    <linearGradient id="bg4" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#090D16"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="heartGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E1B4B"/>
+      <stop offset="100%" stop-color="#311042"/>
+    </linearGradient>
+    <linearGradient id="stageCard" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="680" rx="18" fill="url(#bg4)"/>
+
+  <!-- Title -->
+  <text x="600" y="44" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="26" font-weight="800" fill="#FFFFFF">Inside OmniCoder's Dual Brain: The Architect &amp; The 8-Stage Assembly Line</text>
+  <text x="600" y="70" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="15" fill="#94A3B8">Why separating "Creative Conversation" from "Mechanical Precision" keeps context clean</text>
+
+  <!-- LAYER 1: THE CONVERSATIONAL ARCHITECT (THE HEART) -->
+  <g transform="translate(50, 95)">
+    <rect width="1100" height="165" rx="16" fill="url(#heartGrad)" stroke="#EC4899" stroke-width="2"/>
+    <rect x="24" y="18" width="290" height="26" rx="13" fill="#831843"/>
+    <text x="169" y="35" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="800" fill="#FBCFE8">LAYER 1: THE CONVERSATIONAL HEART (pkg/ui)</text>
+
+    <text x="24" y="72" font-family="Inter, Segoe UI, sans-serif" font-size="21" font-weight="800" fill="#FFFFFF">Interactive Architect — With Guardrails Against Placeholder Stubs</text>
+    <text x="24" y="96" font-family="Inter, Segoe UI, sans-serif" font-size="13" fill="#F9A8D4">You speak plain English: <tspan fill="#FFFFFF" font-family="Consolas, monospace">omnicoder "Build a real-time drawing app"</tspan></text>
+
+    <!-- 4 Action Intent Pills -->
+    <g transform="translate(24, 112)">
+      <rect width="245" height="36" rx="8" fill="#0F172A" stroke="#F472B6" stroke-width="1.2"/>
+      <text x="122" y="23" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="700" fill="#F472B6">[ACTION:WRITE] Full Files</text>
+
+      <rect x="262" y="0" width="245" height="36" rx="8" fill="#0F172A" stroke="#38BDF8" stroke-width="1.2"/>
+      <text x="384" y="23" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="700" fill="#38BDF8">[ACTION:MAP] Instant GPS</text>
+
+      <rect x="524" y="0" width="255" height="36" rx="8" fill="#0F172A" stroke="#10B981" stroke-width="1.2"/>
+      <text x="651" y="23" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="700" fill="#10B981">[ACTION:BUILD] Compile &amp; Test</text>
+
+      <rect x="796" y="0" width="255" height="36" rx="8" fill="#0F172A" stroke="#FBBF24" stroke-width="1.2"/>
+      <text x="923" y="23" text-anchor="middle" font-family="Consolas, monospace" font-size="12" font-weight="700" fill="#FBBF24">[ACTION:HEAL] Auto-Repair</text>
+    </g>
+  </g>
+
+  <!-- Handoff Arrow -->
+  <path d="M 600 260 L 600 292" stroke="#38BDF8" stroke-width="3"/>
+  <polygon points="592,288 608,288 600,300" fill="#38BDF8"/>
+  <rect x="445" y="266" width="310" height="24" rx="12" fill="#0C4A6E" stroke="#38BDF8" stroke-width="1"/>
+  <text x="600" y="282" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#E0F2FE">STRUCTURED HANDOFF TO MECHANICAL PIPELINE</text>
+
+  <!-- LAYER 2: THE 8-STAGE SUBTERRANEAN ENGINE -->
+  <g transform="translate(50, 304)">
+    <rect width="1100" height="340" rx="16" fill="#111827" stroke="#6366F1" stroke-width="2"/>
+    <rect x="24" y="16" width="350" height="26" rx="13" fill="#1E1B4B"/>
+    <text x="199" y="33" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="800" fill="#A5B4FC">LAYER 2: THE 8-STAGE MECHANICAL ENGINE (pkg/engine)</text>
+
+    <!-- Row 1 of Stages (Stages 1 to 4) -->
+    <!-- Stage 1 -->
+    <g transform="translate(24, 56)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#38BDF8" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#0C4A6E"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#38BDF8">1</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">City Map Scan</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Ranks central files using</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">AST PageRank in &lt;2s.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#38BDF8">Budget: &lt;1,024 tokens</text>
+    </g>
+
+    <!-- Stage 2 -->
+    <g transform="translate(292, 56)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#6366F1" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#1E1B4B"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#A5B4FC">2</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Ripple-Effect Check</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Traces up to 5 hops out to see</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">what connects to this code.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#A5B4FC">&lt;nav:ribbon&gt; &lt;160 tokens</text>
+    </g>
+
+    <!-- Stage 3 -->
+    <g transform="translate(560, 56)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#8B5CF6" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#2E1065"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#C4B5FD">3</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Exact Line Pinpoint</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Pulls target code lines + class</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">__init__ &amp; helper slices.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#C4B5FD">Sub-millisecond AST slice</text>
+    </g>
+
+    <!-- Stage 4 -->
+    <g transform="translate(828, 56)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#10B981" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#064E3B"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#34D399">4</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">300-Token Index Card</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Asks the AI one focused question</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">with root-cause analysis first.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#34D399">Strict Limit: &lt;300 tokens</text>
+    </g>
+
+    <!-- Row 2 of Stages (Stages 5 to 8) -->
+    <!-- Stage 5 -->
+    <g transform="translate(24, 196)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#F59E0B" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#451A03"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#FBBF24">5</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">5-Tier Surgical Stitch</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Relative indentation &amp; anchor</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">matcher splices edits cleanly.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#FBBF24">Multi-File Atomic Commit</text>
+    </g>
+
+    <!-- Stage 6 -->
+    <g transform="translate(292, 196)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#EC4899" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#500724"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#F472B6">6</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Self-Healing Loop</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Runs tests; repairs missing</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">imports (&lt;1ms) or iterates.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#F472B6">AST Pre-Heal + Beam K=3</text>
+    </g>
+
+    <!-- Stage 7 -->
+    <g transform="translate(560, 196)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#38BDF8" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#0C4A6E"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#38BDF8">7</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Clean Desk Reset</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Wipes temporary chat clutter to</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">zero; saves facts to 4D vault.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#38BDF8">Chat Noise = 0 Tokens</text>
+    </g>
+
+    <!-- Stage 8 -->
+    <g transform="translate(828, 196)">
+      <rect width="246" height="122" rx="12" fill="url(#stageCard)" stroke="#10B981" stroke-width="1.5"/>
+      <circle cx="26" cy="26" r="14" fill="#064E3B"/>
+      <text x="26" y="31" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="13" font-weight="800" fill="#34D399">8</text>
+      <text x="48" y="31" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">Cryptographic Receipt</text>
+      <text x="16" y="56" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">Stamps a SHA-256 Merkle</text>
+      <text x="16" y="74" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#CBD5E1">receipt on every verified edit.</text>
+      <text x="16" y="104" font-family="Consolas, monospace" font-size="11" font-weight="700" fill="#34D399">Auditable Edit Lineage</text>
+    </g>
+  </g>
+</svg>

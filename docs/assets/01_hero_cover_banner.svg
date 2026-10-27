@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" width="100%" height="100%" role="img" aria-label="Meet OmniCoder-ICX overview banner showing 4D GPS map, sub-300 token decision cards, and architecture summary cards">
+  <title>Meet OmniCoder-ICX — Architecture Overview</title>
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090D16"/>
+      <stop offset="50%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#1E1B4B"/>
+    </linearGradient>
+    <linearGradient id="indigoGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4338CA"/>
+      <stop offset="50%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="emeraldGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#059669"/>
+      <stop offset="100%" stop-color="#10B981"/>
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#0F172A" stop-opacity="0.95"/>
+    </linearGradient>
+    <pattern id="gridPattern" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#334155" stroke-width="0.6" stroke-opacity="0.35"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="520" rx="20" fill="url(#bgGrad)"/>
+  <rect width="1200" height="520" rx="20" fill="url(#gridPattern)"/>
+
+  <!-- Decorative Ambient Orbs -->
+  <circle cx="1050" cy="110" r="180" fill="#6366F1" opacity="0.12"/>
+  <circle cx="180" cy="420" r="160" fill="#10B981" opacity="0.10"/>
+
+  <!-- Top Pill Badge -->
+  <rect x="60" y="42" width="450" height="34" rx="17" fill="#1E1B4B" stroke="#6366F1" stroke-width="1.5"/>
+  <circle cx="82" cy="59" r="6" fill="#10B981"/>
+  <text x="98" y="64" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="13" font-weight="700" fill="#E0E7FF" letter-spacing="1.2">CALERA COMPUTING • ARCHITECTURE PAPER 2026</text>
+
+  <!-- Main Headline -->
+  <text x="60" y="132" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="52" font-weight="800" fill="#FFFFFF" letter-spacing="-1">Meet OmniCoder-ICX</text>
+  <text x="60" y="178" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="24" font-weight="600" fill="#A5B4FC">How a 300-Token Decision Card &amp; a 4D Code Map Replace Bloated Chat Loops</text>
+  <text x="60" y="216" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="16" fill="#94A3B8">Instead of stuffing 200,000 tokens of raw files and logs into an LLM's prompt window, OmniCoder indexes your</text>
+  <text x="60" y="240" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="16" fill="#94A3B8">repository like a GPS, works from compact &lt;300-token cards, and coordinates parallel builders in isolated worktrees.</text>
+
+  <!-- Right Side Visual Emblem: 4D Lattice Core -->
+  <g transform="translate(970, 155)">
+    <polygon points="0,-95 85,-45 85,45 0,95 -85,45 -85,-45" fill="#1E1B4B" stroke="#8B5CF6" stroke-width="2" opacity="0.85"/>
+    <polygon points="0,-68 60,-32 60,32 0,68 -60,32 -60,-32" fill="#0F172A" stroke="#38BDF8" stroke-width="1.8"/>
+    <line x1="0" y1="-95" x2="0" y2="-68" stroke="#6366F1" stroke-width="1.5"/>
+    <line x1="85" y1="-45" x2="60" y2="-32" stroke="#6366F1" stroke-width="1.5"/>
+    <line x1="85" y1="45" x2="60" y2="32" stroke="#6366F1" stroke-width="1.5"/>
+    <line x1="0" y1="95" x2="0" y2="68" stroke="#6366F1" stroke-width="1.5"/>
+    <line x1="-85" y1="45" x2="-60" y2="32" stroke="#6366F1" stroke-width="1.5"/>
+    <line x1="-85" y1="-45" x2="-60" y2="-32" stroke="#6366F1" stroke-width="1.5"/>
+    <circle cx="0" cy="0" r="28" fill="url(#indigoGlow)"/>
+    <text x="0" y="5" text-anchor="middle" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="13" font-weight="800" fill="#FFFFFF">4D GPS</text>
+    <circle cx="0" cy="-95" r="5" fill="#10B981"/>
+    <circle cx="85" cy="-45" r="5" fill="#38BDF8"/>
+    <circle cx="85" cy="45" r="5" fill="#F59E0B"/>
+    <circle cx="0" cy="95" r="5" fill="#10B981"/>
+    <circle cx="-85" cy="45" r="5" fill="#EC4899"/>
+    <circle cx="-85" cy="-45" r="5" fill="#A855F7"/>
+  </g>
+
+  <!-- 5 Metric Cards at Bottom -->
+  <!-- Card 1: 20-Tool Native MCP Server -->
+  <g transform="translate(60, 285)">
+    <rect width="204" height="185" rx="14" fill="url(#cardGrad)" stroke="#38BDF8" stroke-width="1.5"/>
+    <rect x="16" y="16" width="132" height="24" rx="12" fill="#0C4A6E"/>
+    <text x="82" y="32" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#38BDF8">MCP SERVER</text>
+    <text x="16" y="84" font-family="Inter, Segoe UI, sans-serif" font-size="40" font-weight="800" fill="#38BDF8">20 Tools</text>
+    <text x="16" y="112" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">Native JSON-RPC 2.0</text>
+    <text x="16" y="136" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Plugs into VS Code, Cursor,</text>
+    <text x="16" y="154" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Cline &amp; Antigravity</text>
+  </g>
+
+  <!-- Card 2: 5-Tier Surgical Splicer -->
+  <g transform="translate(279, 285)">
+    <rect width="204" height="185" rx="14" fill="url(#cardGrad)" stroke="#10B981" stroke-width="1.5"/>
+    <rect x="16" y="16" width="124" height="24" rx="12" fill="#064E3B"/>
+    <text x="78" y="32" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#34D399">SURGICAL PATCH</text>
+    <text x="16" y="84" font-family="Inter, Segoe UI, sans-serif" font-size="42" font-weight="800" fill="#10B981">5-Tier</text>
+    <text x="16" y="112" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">AST &amp; Fuzzy Splicer</text>
+    <text x="16" y="136" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Zero-token pre-healer &amp;</text>
+    <text x="16" y="154" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">2PC transaction verification</text>
+  </g>
+
+  <!-- Card 3: Low Context -->
+  <g transform="translate(498, 285)">
+    <rect width="204" height="185" rx="14" fill="url(#cardGrad)" stroke="#8B5CF6" stroke-width="1.5"/>
+    <rect x="16" y="16" width="116" height="24" rx="12" fill="#2E1065"/>
+    <text x="74" y="32" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#C4B5FD">COMPACT CARDS</text>
+    <text x="16" y="84" font-family="Inter, Segoe UI, sans-serif" font-size="44" font-weight="800" fill="#A78BFA">&lt;300</text>
+    <text x="16" y="112" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">Tokens Per Decision Card</text>
+    <text x="16" y="136" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">Targeted code slices keep</text>
+    <text x="16" y="154" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">prompts small &amp; focused</text>
+  </g>
+
+  <!-- Card 4: Parallel Swarm -->
+  <g transform="translate(717, 285)">
+    <rect width="204" height="185" rx="14" fill="url(#cardGrad)" stroke="#F59E0B" stroke-width="1.5"/>
+    <rect x="16" y="16" width="128" height="24" rx="12" fill="#451A03"/>
+    <text x="80" y="32" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#FCD34D">SWARM OVERHEAD</text>
+    <text x="16" y="84" font-family="Inter, Segoe UI, sans-serif" font-size="44" font-weight="800" fill="#FBBF24">4.07x</text>
+    <text x="16" y="112" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">Coordination Speedup</text>
+    <text x="16" y="136" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">582ms → 143ms on synthetic</text>
+    <text x="16" y="154" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">3-worker multi-module build</text>
+  </g>
+
+  <!-- Card 5: Single Binary -->
+  <g transform="translate(936, 285)">
+    <rect width="204" height="185" rx="14" fill="url(#cardGrad)" stroke="#EC4899" stroke-width="1.5"/>
+    <rect x="16" y="16" width="112" height="24" rx="12" fill="#500724"/>
+    <text x="72" y="32" text-anchor="middle" font-family="Inter, Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#F472B6">SINGLE BINARY</text>
+    <text x="16" y="84" font-family="Inter, Segoe UI, sans-serif" font-size="44" font-weight="800" fill="#F472B6">16 MB</text>
+    <text x="16" y="112" font-family="Inter, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#FFFFFF">Standalone Go Engine</text>
+    <text x="16" y="136" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">100% Pure Go. No Python</text>
+    <text x="16" y="154" font-family="Inter, Segoe UI, sans-serif" font-size="12" fill="#94A3B8">runtime or cloud VM needed</text>
+  </g>
+</svg>
