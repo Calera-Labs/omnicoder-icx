@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -2210,3 +2211,151 @@ func (g *LLMDecisionGate) DecideReproducer(ctx context.Context, card GateReprodu
 func (g *LLMDecisionGate) Reproducer(ctx context.Context, card GateReproducerCard) (*GateReproducerDecision, error) {
 	return g.DecideReproducer(ctx, card)
 }
+
+// ============================================================================
+// Phase 3: Law L8 2-Schema Micro-Viewport & Universal <400-Token Turn Envelope
+// ============================================================================
+
+const (
+	// MaxLawL8Schemas enforces ICX Law L8: at most 2 tool schemas injected per turn.
+	MaxLawL8Schemas = 2
+	// MaxLawL8ViewportTokens caps the Law L8 schema micro-viewport to 84 tokens.
+	MaxLawL8ViewportTokens = 84
+	// MaxUniversalTurnEnvelopeTokens caps the combined Decision Card + Law L8 turn envelope to 400 tokens.
+	MaxUniversalTurnEnvelopeTokens = 400
+)
+
+// LawL8ToolSchema represents a compact ICX compiler or domain skill schema.
+type LawL8ToolSchema struct {
+	Name      string `json:"name"`
+	Signature string `json:"signature"`
+	Domain    string `json:"domain,omitempty"`
+	Summary   string `json:"summary,omitempty"`
+}
+
+// PromptFormatterCard is implemented by all <300-token OmniCoder decision cards.
+type PromptFormatterCard interface {
+	FormatPrompt() (string, string, error)
+}
+
+// RecallLawL8Schemas deterministically selects at most MaxLawL8Schemas (2) tool schemas
+// from a catalog (e.g., the 1,004 ICX compiler skills) based on subtoken and keyword
+// overlap with query, eliminating 99.80% of monolithic tool schema bloat.
+func RecallLawL8Schemas(query string, catalog []LawL8ToolSchema) []LawL8ToolSchema {
+	if len(catalog) == 0 || strings.TrimSpace(query) == "" {
+		if len(catalog) > MaxLawL8Schemas {
+			return catalog[:MaxLawL8Schemas]
+		}
+		return catalog
+	}
+
+	qToks := devops.TokenizeIdentifier(query)
+	qSet := make(map[string]bool, len(qToks))
+	for _, qt := range qToks {
+		qSet[strings.ToLower(qt)] = true
+	}
+	qLower := strings.ToLower(query)
+
+	type scoredSchema struct {
+		schema LawL8ToolSchema
+		score  float64
+	}
+	var scored []scoredSchema
+	for _, s := range catalog {
+		sc := 0.0
+		nameLower := strings.ToLower(s.Name)
+		if strings.Contains(qLower, nameLower) && len(nameLower) >= 4 {
+			sc += 10.0
+		}
+		for _, tok := range devops.TokenizeIdentifier(s.Name + " " + s.Domain + " " + s.Summary + " " + s.Signature) {
+			if qSet[strings.ToLower(tok)] {
+				sc += 2.5
+			}
+		}
+		if sc > 0 {
+			scored = append(scored, scoredSchema{schema: s, score: sc})
+		}
+	}
+
+	sort.Slice(scored, func(i, j int) bool {
+		if scored[i].score != scored[j].score {
+			return scored[i].score > scored[j].score
+		}
+		return scored[i].schema.Name < scored[j].schema.Name
+	})
+
+	var out []LawL8ToolSchema
+	for i := 0; i < len(scored) && len(out) < MaxLawL8Schemas; i++ {
+		out = append(out, scored[i].schema)
+	}
+	if len(out) == 0 {
+		for i := 0; i < len(catalog) && len(out) < MaxLawL8Schemas; i++ {
+			out = append(out, catalog[i])
+		}
+	}
+	return out
+}
+
+// FormatLawL8MicroViewport formats at most 2 recalled tool schemas into a <=84-token
+// Law L8 micro-viewport block.
+func FormatLawL8MicroViewport(schemas []LawL8ToolSchema) (string, int) {
+	if len(schemas) == 0 {
+		return "", 0
+	}
+	if len(schemas) > MaxLawL8Schemas {
+		schemas = schemas[:MaxLawL8Schemas]
+	}
+
+	var lines []string
+	lines = append(lines, fmt.Sprintf("[law:L8 schemas=%d]", len(schemas)))
+	for _, s := range schemas {
+		sig := strings.TrimSpace(s.Signature)
+		if sig == "" {
+			sig = s.Name + "()"
+		}
+		entry := fmt.Sprintf("- %s: %s", s.Name, sig)
+		if s.Summary != "" && len(entry)+len(s.Summary) < 95 {
+			entry += " // " + strings.TrimSpace(s.Summary)
+		}
+		lines = append(lines, entry)
+	}
+
+	block := clampTextToBudget("", strings.Join(lines, "\n"), MaxLawL8ViewportTokens)
+	return block, EstimateTokens(block)
+}
+
+// FormatUniversalTurnEnvelope combines any <300-token OmniCoder decision card with
+// the Law L8 2-schema micro-viewport (~84 tokens), strictly guaranteeing the total
+// prompt envelope remains under MaxUniversalTurnEnvelopeTokens (<400 tokens).
+func FormatUniversalTurnEnvelope(
+	card PromptFormatterCard,
+	query string,
+	catalog []LawL8ToolSchema,
+) (sysPrompt string, userPrompt string, totalTokens int, err error) {
+	if card == nil {
+		return "", "", 0, errors.New("llm: decision card is nil")
+	}
+	sys, user, err := card.FormatPrompt()
+	if err != nil {
+		return "", "", 0, err
+	}
+
+	recalled := RecallLawL8Schemas(query, catalog)
+	l8Block, _ := FormatLawL8MicroViewport(recalled)
+	if l8Block != "" {
+		combinedUser := l8Block + "\n" + user
+		if EstimateTokens(sys+" "+combinedUser) >= MaxUniversalTurnEnvelopeTokens {
+			user = clampTextToBudget(sys+" "+l8Block, user, MaxUniversalTurnEnvelopeTokens)
+			combinedUser = l8Block + "\n" + user
+		}
+		user = combinedUser
+	}
+
+	total := EstimateTokens(sys + " " + user)
+	if total >= MaxUniversalTurnEnvelopeTokens {
+		user = clampTextToBudget(sys, user, MaxUniversalTurnEnvelopeTokens)
+		total = EstimateTokens(sys + " " + user)
+	}
+	return sys, user, total, nil
+}
+

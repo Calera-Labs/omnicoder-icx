@@ -708,3 +708,39 @@ func Test50PathologicalCardsBudget(t *testing.T) {
 		t.Fatalf("Requirement breach: expected >= 50 cards tested, got %d", totalCardsTested)
 	}
 }
+
+func TestPhase3_UniversalTurnEnvelope_LawL8(t *testing.T) {
+	catalog := []llm.LawL8ToolSchema{
+		{Name: "icx_space_ast_read", Signature: "icx_space_ast_read(file, symbol)", Domain: "codebase", Summary: "Read AST node slice"},
+		{Name: "icx_aider_diff_apply", Signature: "icx_aider_diff_apply(file, search, replace)", Domain: "codebase", Summary: "Apply surgical SEARCH/REPLACE"},
+		{Name: "duckdb_parquet_query", Signature: "duckdb_parquet_query(sql)", Domain: "analytics", Summary: "Query Parquet tables"},
+		{Name: "smt_quest_dag_softlock_prover", Signature: "smt_quest_dag_softlock_prover(dag)", Domain: "gamedev", Summary: "Prove DAG liveness"},
+	}
+
+	recalled := llm.RecallLawL8Schemas("apply surgical diff and read AST symbol", catalog)
+	if len(recalled) != llm.MaxLawL8Schemas {
+		t.Fatalf("expected exactly %d recalled schemas under Law L8, got %d", llm.MaxLawL8Schemas, len(recalled))
+	}
+
+	vpText, vpToks := llm.FormatLawL8MicroViewport(recalled)
+	if vpToks > llm.MaxLawL8ViewportTokens || !strings.Contains(vpText, "[law:L8 schemas=2]") {
+		t.Fatalf("unexpected Law L8 micro-viewport tokens=%d (max %d): %s", vpToks, llm.MaxLawL8ViewportTokens, vpText)
+	}
+
+	card := llm.GateEditCard{
+		FilePath:       "pkg/volumetric/shape_subtractor.go",
+		Instruction:    "Wire SubtractShapeScoped using LocalStar neighborhood",
+		ContextSnippet: "func SubtractShapeScoped(qs *QuestionShape, ssi *SimplicialSentenceIndex, max int) {}",
+	}
+	sys, user, totalTokens, err := llm.FormatUniversalTurnEnvelope(&card, "apply surgical diff and read AST symbol", catalog)
+	if err != nil {
+		t.Fatalf("FormatUniversalTurnEnvelope failed: %v", err)
+	}
+	if totalTokens >= llm.MaxUniversalTurnEnvelopeTokens {
+		t.Fatalf("Universal turn envelope breached 400-token ceiling: %d tokens", totalTokens)
+	}
+	if !strings.Contains(user, "[law:L8 schemas=2]") || sys == "" {
+		t.Fatalf("expected Law L8 header in universal turn envelope, got:\n%s", user)
+	}
+}
+

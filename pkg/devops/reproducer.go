@@ -443,3 +443,103 @@ func VerifyReproducerPasses(scriptPath string) bool {
 
 	return res.ExitCode == 0
 }
+
+// DualStateReproResult captures the Ascent 5 Phase 4 zero-turn dual-state
+// FAIL_TO_PASS & output-delta reproducer verification outcome.
+type DualStateReproResult struct {
+	Verified       bool                 `json:"verified"`
+	Status         string               `json:"status"` // "FAIL_TO_PASS", "OUTPUT_DELTA_PASS", "NO_OP_REJECTED", "PATCHED_FAILED", "SYNTAX_ERROR"
+	BaselineResult *ReproducerRunResult `json:"baseline_result,omitempty"`
+	PatchedResult  *ReproducerRunResult `json:"patched_result,omitempty"`
+	Reason         string               `json:"reason,omitempty"`
+}
+
+// VerifyDualStateReproducer evaluates a reproducer script against both the unpatched
+// baseline file contents and the patched file contents (always restoring patchedFiles on return).
+// It enforces that:
+//  1. The patched workspace exits with code 0 (and no syntax error), AND
+//  2. The unpatched baseline either exits non-zero (FAIL_TO_PASS) or produces a
+//     strictly different stdout/stderr output (OUTPUT_DELTA_PASS), preventing no-op tests.
+func VerifyDualStateReproducer(
+	ctx context.Context,
+	scriptPath string,
+	repoDir string,
+	baselineFiles map[string]string,
+	patchedFiles map[string]string,
+	timeout time.Duration,
+) (*DualStateReproResult, error) {
+	if timeout <= 0 {
+		timeout = DefaultReproducerTimeout
+	}
+	restorePatched := func() {
+		for rel, content := range patchedFiles {
+			full := filepath.Join(repoDir, filepath.FromSlash(rel))
+			_ = os.WriteFile(full, []byte(content), 0644)
+		}
+	}
+	defer restorePatched()
+
+	// 1. Evaluate on patched state first (fast rejection if patch itself still fails)
+	restorePatched()
+	patchedRes, err := RunReproducerScript(ctx, scriptPath, timeout)
+	if err != nil {
+		return nil, err
+	}
+	patchedCombined := patchedRes.Stdout + "\n" + patchedRes.Stderr
+	if hasSyntaxError(patchedCombined) {
+		return &DualStateReproResult{
+			Verified:      false,
+			Status:        "SYNTAX_ERROR",
+			PatchedResult: patchedRes,
+			Reason:        "reproducer or patched module contains a syntax/indentation error",
+		}, nil
+	}
+	if patchedRes.TimedOut || patchedRes.ExitCode != 0 {
+		return &DualStateReproResult{
+			Verified:      false,
+			Status:        "PATCHED_FAILED",
+			PatchedResult: patchedRes,
+			Reason:        fmt.Sprintf("reproducer failed on patched workspace (exit=%d, timeout=%v)", patchedRes.ExitCode, patchedRes.TimedOut),
+		}, nil
+	}
+
+	// 2. Temporarily write baseline file contents and run reproducer
+	for rel, content := range baselineFiles {
+		full := filepath.Join(repoDir, filepath.FromSlash(rel))
+		_ = os.WriteFile(full, []byte(content), 0644)
+	}
+	baseRes, err := RunReproducerScript(ctx, scriptPath, timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	if baseRes.ExitCode != 0 {
+		return &DualStateReproResult{
+			Verified:       true,
+			Status:         "FAIL_TO_PASS",
+			BaselineResult: baseRes,
+			PatchedResult:  patchedRes,
+			Reason:         fmt.Sprintf("baseline exited %d -> patched exited 0 (FAIL_TO_PASS verified)", baseRes.ExitCode),
+		}, nil
+	}
+
+	if strings.TrimSpace(baseRes.Stdout) != strings.TrimSpace(patchedRes.Stdout) ||
+		strings.TrimSpace(baseRes.Stderr) != strings.TrimSpace(patchedRes.Stderr) {
+		return &DualStateReproResult{
+			Verified:       true,
+			Status:         "OUTPUT_DELTA_PASS",
+			BaselineResult: baseRes,
+			PatchedResult:  patchedRes,
+			Reason:         "baseline and patched runs exited 0 with verified stdout/stderr output delta",
+		}, nil
+	}
+
+	return &DualStateReproResult{
+		Verified:       false,
+		Status:         "NO_OP_REJECTED",
+		BaselineResult: baseRes,
+		PatchedResult:  patchedRes,
+		Reason:         "reproducer exited 0 with identical output on both baseline and patched workspace (no-op test rejected)",
+	}, nil
+}
+

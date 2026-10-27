@@ -24,12 +24,13 @@ import (
 
 // SymbolTag represents an extracted identifier definition or signature.
 type SymbolTag struct {
-	File      string  `json:"file"`
-	Kind      string  `json:"kind"` // "struct", "interface", "func", "method", "class", "type", "const", "var", "trait", "enum"
-	Name      string  `json:"name"`
-	Signature string  `json:"signature"`
-	Line      int     `json:"line"`
-	Score     float64 `json:"score"`
+	File        string  `json:"file"`
+	Kind        string  `json:"kind"` // "struct", "interface", "func", "method", "class", "type", "const", "var", "module_var", "trait", "enum"
+	Name        string  `json:"name"`
+	ParentClass string  `json:"parent_class,omitempty"`
+	Signature   string  `json:"signature"`
+	Line        int     `json:"line"`
+	Score       float64 `json:"score"`
 }
 
 // RepoMapRequest encapsulates parameters for repository map generation.
@@ -61,8 +62,9 @@ var (
 	tsConstArrowReg = regexp.MustCompile(`^(?:export\s+)?const\s+([a-zA-Z0-9_]+)\s*=\s*(?:async\s*)?\(([^)]*)\)\s*(?::\s*([a-zA-Z0-9_<>[\]]+))?\s*=>`)
 
 	// Python symbol patterns
-	pyClassReg = regexp.MustCompile(`^class\s+([a-zA-Z0-9_]+)(?:\(([^)]*)\))?`)
-	pyDefReg   = regexp.MustCompile(`^(?:async\s+)?def\s+([a-zA-Z0-9_]+)\s*\(([^)]*)`)
+	pyClassReg     = regexp.MustCompile(`^class\s+([a-zA-Z0-9_]+)(?:\(([^)]*)\))?`)
+	pyDefReg       = regexp.MustCompile(`^(?:async\s+)?def\s+([a-zA-Z0-9_]+)\s*\(([^)]*)`)
+	pyModuleVarReg = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]{2,})\s*(?::\s*[^=]+)?=\s*(.+)$`)
 
 	// Rust symbol patterns
 	rsStructReg = regexp.MustCompile(`^(?:pub(?:\([^)]+\))?\s+)?struct\s+([a-zA-Z0-9_]+)`)
@@ -741,10 +743,23 @@ func extractPolyglotSymbolsAndRefs(relPath, content, ext string) ([]SymbolTag, m
 
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	lineNum := 0
+	currentPyClass := ""
+	currentPyClassIndent := -1
 
 	for scanner.Scan() {
 		lineNum++
-		line := strings.TrimSpace(scanner.Text())
+		rawLine := scanner.Text()
+		line := strings.TrimSpace(rawLine)
+		rawIndent := 0
+		for _, ch := range rawLine {
+			if ch == ' ' {
+				rawIndent++
+			} else if ch == '\t' {
+				rawIndent += 4
+			} else {
+				break
+			}
+		}
 
 		for _, match := range identRefRegex.FindAllString(line, -1) {
 			refs[match] = true
@@ -765,7 +780,15 @@ func extractPolyglotSymbolsAndRefs(relPath, content, ext string) ([]SymbolTag, m
 			}
 
 		case ".py":
+			if line != "" && !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "@") {
+				if currentPyClassIndent >= 0 && rawIndent <= currentPyClassIndent && !strings.HasPrefix(line, "class ") {
+					currentPyClass = ""
+					currentPyClassIndent = -1
+				}
+			}
 			if m := pyClassReg.FindStringSubmatch(line); len(m) > 1 {
+				currentPyClass = m[1]
+				currentPyClassIndent = rawIndent
 				sig := fmt.Sprintf("class %s", m[1])
 				if m[2] != "" {
 					sig += fmt.Sprintf("(%s)", m[2])
@@ -776,7 +799,20 @@ func extractPolyglotSymbolsAndRefs(relPath, content, ext string) ([]SymbolTag, m
 				if len(m) > 3 && m[3] != "" {
 					sig += fmt.Sprintf(" -> %s", m[3])
 				}
-				tags = append(tags, SymbolTag{File: relPath, Kind: "func", Name: m[1], Signature: sig, Line: lineNum})
+				kind := "func"
+				parentCls := ""
+				if currentPyClass != "" && rawIndent > currentPyClassIndent {
+					kind = "method"
+					parentCls = currentPyClass
+				}
+				tags = append(tags, SymbolTag{File: relPath, Kind: kind, Name: m[1], ParentClass: parentCls, Signature: sig, Line: lineNum})
+			} else if rawIndent == 0 {
+				if m := pyModuleVarReg.FindStringSubmatch(line); len(m) > 2 {
+					varName := m[1]
+					if varName != "__all__" && varName != "__version__" && varName != "__author__" && !strings.HasPrefix(m[2], "=") {
+						tags = append(tags, SymbolTag{File: relPath, Kind: "module_var", Name: varName, Signature: line, Line: lineNum})
+					}
+				}
 			}
 
 		case ".rs":

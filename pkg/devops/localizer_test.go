@@ -499,3 +499,72 @@ Traceback (most recent call last):
 		t.Errorf("expected at least 2 supporting files, got %v", mfSupporting)
 	}
 }
+
+func TestAscent5Phase4_LocalizationParity(t *testing.T) {
+	tempDir := t.TempDir()
+	httpDir := filepath.Join(tempDir, "pkg", "http")
+	_ = os.MkdirAll(httpDir, 0755)
+
+	parserPy := `import re
+
+HEADER_TOKEN_RE = re.compile(r"^[A-Za-z0-9-]+$")
+
+class HTTPParser:
+    def complete(self):
+        """
+        Multi-line docstring line 1.
+        Multi-line docstring line 2.
+        """
+        return True
+
+    async def acomplete(self):
+        return True
+`
+	asyncParserPy := `class HTTPParser:
+    def complete(self):
+        return False
+`
+	_ = os.WriteFile(filepath.Join(httpDir, "http_parser.py"), []byte(parserPy), 0644)
+	_ = os.WriteFile(filepath.Join(httpDir, "async_http_parser.py"), []byte(asyncParserPy), 0644)
+
+	rm, err := devops.SynthesizeRepoMap(devops.RepoMapRequest{WorkspaceDir: tempDir})
+	if err != nil {
+		t.Fatalf("SynthesizeRepoMap failed: %v", err)
+	}
+
+	var foundModuleVar bool
+	var primaryComplete devops.SymbolTag
+	for _, s := range rm.TopSymbols {
+		if s.Name == "HEADER_TOKEN_RE" && s.Kind == "module_var" {
+			foundModuleVar = true
+		}
+		if s.Name == "complete" && s.ParentClass == "HTTPParser" && strings.HasSuffix(s.File, "http/http_parser.py") {
+			primaryComplete = s
+		}
+	}
+	if !foundModuleVar {
+		t.Fatalf("expected top-level module_var HEADER_TOKEN_RE to be indexed in TopSymbols, got: %+v", rm.TopSymbols)
+	}
+	if primaryComplete.Name == "" {
+		t.Fatalf("expected HTTPParser.complete with ParentClass=HTTPParser to be indexed")
+	}
+
+	// Verify 0-param mirror twin discovery (both async twin acomplete and cross-file HTTPParser.complete)
+	twins := devops.DiscoverMirrorTwins(primaryComplete, rm.TopSymbols)
+	if len(twins) < 2 {
+		t.Fatalf("expected >= 2 mirror twins (acomplete + cross-file HTTPParser.complete), got %+v", twins)
+	}
+
+	// Verify CamelCase <-> snake_case triple synergy boost (http_parser + HTTPParser + complete)
+	boost := devops.ComputeSubtokenSynergyBoost([]string{"http", "parser", "complete"}, primaryComplete)
+	if boost < 1.60 {
+		t.Fatalf("expected triple subtoken synergy boost >= 1.60, got %.2f", boost)
+	}
+
+	// Verify docstring-skipping preview
+	preview := devops.FormatDocstringSkippingPreview(parserPy, 6, 12, 10)
+	if !strings.Contains(preview, "docstring lines skipped") || !strings.Contains(preview, "return True") {
+		t.Fatalf("expected docstring lines skipped and executable body in preview, got:\n%s", preview)
+	}
+}
+

@@ -534,5 +534,51 @@ def runner():
 	}
 }
 
+func TestAscent5Phase4_VerifyDifferentialPythonAST(t *testing.T) {
+	tempDir := t.TempDir()
+	pkgDir := filepath.Join(tempDir, "my_pkg")
+	_ = os.MkdirAll(pkgDir, 0755)
+	_ = os.WriteFile(filepath.Join(pkgDir, "__init__.py"), []byte(""), 0644)
+	_ = os.WriteFile(filepath.Join(pkgDir, "helpers.py"), []byte("def valid_helper(x, y=1):\n    return x + y\n"), 0644)
+
+	origCode := `from .helpers import valid_helper
+
+def compute(a, b=2):
+    return valid_helper(a, y=b)
+`
+	// 1. Invalid intra-workspace ImportFrom + invalid CallKwarg + UndefinedName
+	badPatch := `from .helpers import valid_helper, nonexistent_helper
+
+def compute(a, b=2):
+    val = compute(a, bad_kwarg=10)
+    return unimported_module.run(val)
+`
+	diags := VerifyDifferentialPythonAST(tempDir, "my_pkg/core.py", origCode, badPatch)
+	if len(diags) < 3 {
+		t.Fatalf("expected all 3 differential AST diagnostics (ImportFrom, CallKwarg, UndefinedName), got: %+v", diags)
+	}
+	kinds := map[string]bool{}
+	for _, d := range diags {
+		kinds[d.Kind] = true
+	}
+	if !kinds["ImportFrom"] || !kinds["CallKwarg"] || !kinds["UndefinedName"] {
+		t.Fatalf("missing expected diagnostic kinds, got: %+v", diags)
+	}
+
+	// 2. Clean patch must produce 0 diagnostics
+	cleanPatch := `import math
+from .helpers import valid_helper
+
+def compute(a, b=2):
+    scaled = math.ceil(a)
+    return valid_helper(scaled, y=b)
+`
+	cleanDiags := VerifyDifferentialPythonAST(tempDir, "my_pkg/core.py", origCode, cleanPatch)
+	if len(cleanDiags) != 0 {
+		t.Fatalf("expected 0 diagnostics on clean patch, got: %+v", cleanDiags)
+	}
+}
+
+
 
 

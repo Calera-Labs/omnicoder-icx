@@ -1546,10 +1546,380 @@ func ValidateCandidatePatchFast(relPath, origCode, patchedCode string) (string, 
 		if !origUnclosed && patchedUnclosed {
 			return cleanCode, wasModified, fmt.Errorf("devops: candidate patch introduced unclosed literal or delimiter in %s: %s", filepath.Base(relPath), reason)
 		}
+		if ext == ".py" && origCode != "" {
+			if diags := VerifyDifferentialPythonAST("", relPath, origCode, cleanCode); len(diags) > 0 {
+				return cleanCode, wasModified, fmt.Errorf("devops: differential AST gate rejected %s: [%s] line %d: %s",
+					filepath.Base(relPath), diags[0].Kind, diags[0].Line, diags[0].Message)
+			}
+		}
 		return cleanCode, wasModified, nil
 	}
 
 	return cleanCode, wasModified, nil
 }
+
+// DifferentialASTDiagnostic represents a <5ms differential pre-verification finding
+// comparing baseline AST/source against patched AST/source (Ascent 5 Phase 4 parity).
+type DifferentialASTDiagnostic struct {
+	File    string `json:"file"`
+	Line    int    `json:"line"`
+	Kind    string `json:"kind"` // "UndefinedName", "ImportFrom", "CallKwarg"
+	Symbol  string `json:"symbol"`
+	Message string `json:"message"`
+}
+
+var (
+	pyImportFromLineRe = regexp.MustCompile(`^\s*from\s+(\.*[A-Za-z0-9_.]*)\s+import\s+([^\n#]+)`)
+	pyImportModLineRe  = regexp.MustCompile(`^\s*import\s+([^\n#]+)`)
+	pyDefSigLineRe     = regexp.MustCompile(`^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)`)
+	pyCallKwargRe      = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*\(([^()\n]*)\)`)
+	pyKwargPairRe      = regexp.MustCompile(`(?:^|,)\s*([A-Za-z_][A-Za-z0-9_]*)\s*=[^=]`)
+)
+
+var pythonBuiltinSymbols = map[string]bool{
+	"abs": true, "all": true, "any": true, "ascii": true, "bin": true, "bool": true,
+	"breakpoint": true, "bytearray": true, "bytes": true, "callable": true, "chr": true,
+	"classmethod": true, "compile": true, "complex": true, "delattr": true, "dict": true,
+	"dir": true, "divmod": true, "enumerate": true, "eval": true, "exec": true,
+	"filter": true, "float": true, "format": true, "frozenset": true, "getattr": true,
+	"globals": true, "hasattr": true, "hash": true, "help": true, "hex": true,
+	"id": true, "input": true, "int": true, "isinstance": true, "issubclass": true,
+	"iter": true, "len": true, "list": true, "locals": true, "map": true,
+	"max": true, "memoryview": true, "min": true, "next": true, "object": true,
+	"oct": true, "open": true, "ord": true, "pow": true, "print": true,
+	"property": true, "range": true, "repr": true, "reversed": true, "round": true,
+	"set": true, "setattr": true, "slice": true, "sorted": true, "staticmethod": true,
+	"str": true, "sum": true, "super": true, "tuple": true, "type": true,
+	"vars": true, "zip": true, "__import__": true, "__name__": true, "__file__": true,
+	"__doc__": true, "__package__": true, "__all__": true, "__dict__": true, "__class__": true,
+	"True": true, "False": true, "None": true, "Ellipsis": true, "NotImplemented": true,
+	"Exception": true, "BaseException": true, "ValueError": true, "TypeError": true,
+	"KeyError": true, "IndexError": true, "AttributeError": true, "RuntimeError": true,
+	"NotImplementedError": true, "StopIteration": true, "AssertionError": true,
+	"ImportError": true, "ModuleNotFoundError": true, "OSError": true, "IOError": true,
+	"FileNotFoundError": true, "PermissionError": true, "ZeroDivisionError": true,
+	"OverflowError": true, "MemoryError": true, "RecursionError": true, "SystemError": true,
+	"SystemExit": true, "KeyboardInterrupt": true, "GeneratorExit": true, "Warning": true,
+	"DeprecationWarning": true, "UserWarning": true, "RuntimeWarning": true, "FutureWarning": true,
+	"self": true, "cls": true, "args": true, "kwargs": true,
+	"return": true, "yield": true, "raise": true, "pass": true, "break": true, "continue": true,
+	"assert": true, "del": true, "global": true, "nonlocal": true, "import": true, "from": true,
+	"as": true, "def": true, "class": true, "lambda": true, "if": true, "elif": true, "else": true,
+	"for": true, "while": true, "in": true, "not": true, "and": true, "or": true, "is": true,
+	"try": true, "except": true, "finally": true, "with": true, "async": true, "await": true,
+	"match": true, "case": true, "TYPE_CHECKING": true, "Any": true, "Optional": true,
+	"Union": true, "List": true, "Dict": true, "Set": true, "Tuple": true, "Callable": true,
+}
+
+// VerifyDifferentialPythonAST executes a <5ms pure-Go differential static analysis pass
+// comparing origCode against patchedCode to catch newly introduced:
+//  1. Intra-workspace ImportFrom resolution errors (ImportError),
+//  2. Invalid keyword arguments on known functions/methods (TypeError), and
+//  3. Undefined module/local identifiers (NameError).
+func VerifyDifferentialPythonAST(workspaceDir, relPath, origCode, patchedCode string) []DifferentialASTDiagnostic {
+	var diags []DifferentialASTDiagnostic
+	if strings.TrimSpace(patchedCode) == "" {
+		return diags
+	}
+
+	origLines := strings.Split(origCode, "\n")
+	origLineSet := make(map[string]bool, len(origLines))
+	for _, l := range origLines {
+		origLineSet[strings.TrimSpace(l)] = true
+	}
+
+	// Collect all identifiers present anywhere in origCode so pre-existing symbols are never flagged
+	origIdents := make(map[string]bool)
+	for _, m := range identRefRegex.FindAllString(origCode, -1) {
+		origIdents[m] = true
+	}
+
+	// Parse function parameter signatures in patchedCode: fnName -> (allowedParams, hasVarKwarg)
+	type pyCallableSig struct {
+		params     map[string]bool
+		hasVarKw   bool
+		isUniqueFn bool
+	}
+	callableSigs := make(map[string]*pyCallableSig)
+	fnCounts := make(map[string]int)
+
+	patchedLines := strings.Split(patchedCode, "\n")
+	for _, l := range patchedLines {
+		if m := pyDefSigLineRe.FindStringSubmatch(l); len(m) > 2 {
+			fnName := m[1]
+			paramRaw := m[2]
+			fnCounts[fnName]++
+			hasVarKw := strings.Contains(paramRaw, "**")
+			pSet := make(map[string]bool)
+			for _, part := range strings.Split(paramRaw, ",") {
+				part = strings.TrimSpace(part)
+				if part == "" || part == "*" || part == "/" {
+					continue
+				}
+				if idx := strings.Index(part, ":"); idx >= 0 {
+					part = strings.TrimSpace(part[:idx])
+				}
+				if idx := strings.Index(part, "="); idx >= 0 {
+					part = strings.TrimSpace(part[:idx])
+				}
+				part = strings.TrimLeft(part, "*")
+				if part != "" && part != "self" && part != "cls" {
+					pSet[part] = true
+				}
+			}
+			callableSigs[fnName] = &pyCallableSig{
+				params:     pSet,
+				hasVarKw:   hasVarKw,
+				isUniqueFn: fnCounts[fnName] == 1,
+			}
+		}
+	}
+	for fnName, count := range fnCounts {
+		if count > 1 && callableSigs[fnName] != nil {
+			callableSigs[fnName].isUniqueFn = false
+		}
+	}
+
+	// Collect all symbols bound (imported, defined, assigned, or parameter-bound) anywhere in patchedCode
+	boundInPatched := make(map[string]bool)
+	pyAssignBindRe := regexp.MustCompile(`(?:^|[;\s(])([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]+)?=\s*[^=]`)
+	pyForAsBindRe := regexp.MustCompile(`\b(?:for|as|except\s+[A-Za-z0-9_., ()]+\s+as)\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	pyRootCallOrAttrRe := regexp.MustCompile(`(?:^|[^.\w'"` + "`" + `])([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(|\.[A-Za-z_])`)
+
+	for _, l := range patchedLines {
+		trimL := strings.TrimSpace(l)
+		if strings.HasPrefix(trimL, "#") {
+			continue
+		}
+		if m := pyDefSigLineRe.FindStringSubmatch(l); len(m) > 2 {
+			boundInPatched[m[1]] = true
+			if sig := callableSigs[m[1]]; sig != nil {
+				for p := range sig.params {
+					boundInPatched[p] = true
+				}
+			}
+		}
+		if m := pyClassReg.FindStringSubmatch(trimL); len(m) > 1 {
+			boundInPatched[m[1]] = true
+		}
+		if m := pyImportFromLineRe.FindStringSubmatch(l); len(m) > 2 {
+			for _, part := range strings.Split(m[2], ",") {
+				part = strings.TrimSpace(part)
+				if asIdx := strings.Index(part, " as "); asIdx >= 0 {
+					boundInPatched[strings.TrimSpace(part[asIdx+4:])] = true
+				} else if part != "" && part != "*" {
+					boundInPatched[part] = true
+				}
+			}
+		}
+		if m := pyImportModLineRe.FindStringSubmatch(l); len(m) > 1 {
+			for _, part := range strings.Split(m[1], ",") {
+				part = strings.TrimSpace(part)
+				if asIdx := strings.Index(part, " as "); asIdx >= 0 {
+					boundInPatched[strings.TrimSpace(part[asIdx+4:])] = true
+				} else if part != "" {
+					rootMod := strings.Split(part, ".")[0]
+					boundInPatched[strings.TrimSpace(rootMod)] = true
+				}
+			}
+		}
+		for _, m := range pyAssignBindRe.FindAllStringSubmatch(l, -1) {
+			if len(m) > 1 {
+				boundInPatched[m[1]] = true
+			}
+		}
+		for _, m := range pyForAsBindRe.FindAllStringSubmatch(l, -1) {
+			if len(m) > 1 {
+				boundInPatched[m[1]] = true
+			}
+		}
+	}
+
+	// 1. Check newly added runtime ImportFrom statements against workspaceDir
+	inTypeChecking := false
+	typeCheckingIndent := -1
+	inTryExceptImport := false
+	tryIndent := -1
+
+	for idx, rawLine := range patchedLines {
+		lineNum := idx + 1
+		trimmed := strings.TrimSpace(rawLine)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := leadingWhitespaceCols(rawLine)
+		if inTypeChecking && indent <= typeCheckingIndent {
+			inTypeChecking = false
+		}
+		if inTryExceptImport && indent <= tryIndent && !strings.HasPrefix(trimmed, "except") {
+			inTryExceptImport = false
+		}
+		if strings.HasPrefix(trimmed, "if ") && strings.Contains(trimmed, "TYPE_CHECKING") {
+			inTypeChecking = true
+			typeCheckingIndent = indent
+			continue
+		}
+		if strings.HasPrefix(trimmed, "try:") {
+			inTryExceptImport = true
+			tryIndent = indent
+			continue
+		}
+		if inTypeChecking || inTryExceptImport || origLineSet[trimmed] {
+			continue
+		}
+
+		// Check 1: Intra-workspace ImportFrom
+		if workspaceDir != "" {
+			if m := pyImportFromLineRe.FindStringSubmatch(rawLine); len(m) > 2 {
+				modSpec := strings.TrimSpace(m[1])
+				importsRaw := strings.TrimSpace(m[2])
+				if !strings.Contains(importsRaw, "(") && !strings.Contains(importsRaw, "\\") {
+					if targetFile := resolvePythonModuleFile(workspaceDir, relPath, modSpec); targetFile != "" {
+						if targetBytes, err := os.ReadFile(targetFile); err == nil {
+							targetSrc := string(targetBytes)
+							if !strings.Contains(targetSrc, "import *") && !strings.Contains(targetSrc, "def __getattr__") {
+								targetDefs := extractPythonModuleExports(targetSrc)
+								for _, part := range strings.Split(importsRaw, ",") {
+									part = strings.TrimSpace(part)
+									if asIdx := strings.Index(part, " as "); asIdx >= 0 {
+										part = strings.TrimSpace(part[:asIdx])
+									}
+									if part != "" && part != "*" && !targetDefs[part] {
+										// Also check submodule file if targetFile is __init__.py
+										if filepath.Base(targetFile) == "__init__.py" {
+											subPy := filepath.Join(filepath.Dir(targetFile), part+".py")
+											subInit := filepath.Join(filepath.Dir(targetFile), part, "__init__.py")
+											if _, err1 := os.Stat(subPy); err1 == nil {
+												continue
+											}
+											if _, err2 := os.Stat(subInit); err2 == nil {
+												continue
+											}
+										}
+										diags = append(diags, DifferentialASTDiagnostic{
+											File:    relPath,
+											Line:    lineNum,
+											Kind:    "ImportFrom",
+											Symbol:  part,
+											Message: fmt.Sprintf("cannot import name %q from intra-workspace module %q", part, modSpec),
+										})
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Check 2: Newly introduced Call-Kwarg mismatches against known unique intra-file signatures
+		for _, callMatch := range pyCallKwargRe.FindAllStringSubmatch(trimmed, -1) {
+			if len(callMatch) < 3 {
+				continue
+			}
+			fnName := callMatch[1]
+			argsStr := callMatch[2]
+			sig, ok := callableSigs[fnName]
+			if !ok || !sig.isUniqueFn || sig.hasVarKw {
+				continue
+			}
+			// Ignore if preceded by "def " (signature definition itself)
+			if strings.HasPrefix(trimmed, "def "+fnName) || strings.HasPrefix(trimmed, "async def "+fnName) {
+				continue
+			}
+			for _, kwMatch := range pyKwargPairRe.FindAllStringSubmatch(argsStr, -1) {
+				if len(kwMatch) > 1 {
+					kwName := kwMatch[1]
+					if !sig.params[kwName] {
+						diags = append(diags, DifferentialASTDiagnostic{
+							File:    relPath,
+							Line:    lineNum,
+							Kind:    "CallKwarg",
+							Symbol:  kwName,
+							Message: fmt.Sprintf("%s() got an unexpected keyword argument %q", fnName, kwName),
+						})
+					}
+				}
+			}
+		}
+
+		// Check 3: Newly introduced UndefinedName on root calls or module/object attribute accesses
+		if !strings.HasPrefix(trimmed, "def ") && !strings.HasPrefix(trimmed, "async def ") &&
+			!strings.HasPrefix(trimmed, "class ") && !strings.HasPrefix(trimmed, "from ") &&
+			!strings.HasPrefix(trimmed, "import ") && !strings.HasPrefix(trimmed, "\"") &&
+			!strings.HasPrefix(trimmed, "'") {
+			codePart := trimmed
+			if hashIdx := strings.Index(codePart, "#"); hashIdx >= 0 {
+				codePart = codePart[:hashIdx]
+			}
+			for _, refMatch := range pyRootCallOrAttrRe.FindAllStringSubmatch(codePart, -1) {
+				if len(refMatch) > 1 {
+					sym := refMatch[1]
+					if !pythonBuiltinSymbols[sym] && !origIdents[sym] && !boundInPatched[sym] {
+						diags = append(diags, DifferentialASTDiagnostic{
+							File:    relPath,
+							Line:    lineNum,
+							Kind:    "UndefinedName",
+							Symbol:  sym,
+							Message: fmt.Sprintf("name %q is not defined or imported in %s", sym, filepath.Base(relPath)),
+						})
+					}
+				}
+			}
+		}
+	}
+
+	return diags
+}
+
+func resolvePythonModuleFile(workspaceDir, fromRelPath, modSpec string) string {
+	level := 0
+	for level < len(modSpec) && modSpec[level] == '.' {
+		level++
+	}
+	cleanMod := modSpec[level:]
+	relSlash := strings.ReplaceAll(cleanMod, ".", "/")
+
+	if level > 0 {
+		curDir := filepath.Dir(filepath.Join(workspaceDir, filepath.FromSlash(fromRelPath)))
+		for i := 1; i < level; i++ {
+			curDir = filepath.Dir(curDir)
+		}
+		base := curDir
+		if relSlash != "" {
+			base = filepath.Join(curDir, filepath.FromSlash(relSlash))
+		}
+		if fi, err := os.Stat(base + ".py"); err == nil && !fi.IsDir() {
+			return base + ".py"
+		}
+		if fi, err := os.Stat(filepath.Join(base, "__init__.py")); err == nil && !fi.IsDir() {
+			return filepath.Join(base, "__init__.py")
+		}
+		return ""
+	}
+
+	if relSlash == "" {
+		return ""
+	}
+	for _, root := range []string{filepath.Join(workspaceDir, "src"), filepath.Join(workspaceDir, "lib"), workspaceDir} {
+		base := filepath.Join(root, filepath.FromSlash(relSlash))
+		if fi, err := os.Stat(base + ".py"); err == nil && !fi.IsDir() {
+			return base + ".py"
+		}
+		if fi, err := os.Stat(filepath.Join(base, "__init__.py")); err == nil && !fi.IsDir() {
+			return filepath.Join(base, "__init__.py")
+		}
+	}
+	return ""
+}
+
+func extractPythonModuleExports(src string) map[string]bool {
+	exports := make(map[string]bool)
+	for _, m := range identRefRegex.FindAllString(src, -1) {
+		exports[m] = true
+	}
+	return exports
+}
+
 
 

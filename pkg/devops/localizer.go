@@ -38,6 +38,7 @@ type LocalizationResult struct {
 	LineRange       [2]int   `json:"line_range"`
 	Confidence      float64  `json:"confidence"`
 	SupportingFiles []string `json:"supporting_files"`
+	MirrorTwins     []string `json:"mirror_twins,omitempty"`
 }
 
 // TracebackFrame represents a parsed stack trace frame.
@@ -243,11 +244,13 @@ func (idx *BM25SymbolIndex) Index(symbols []SymbolTag) {
 		if len(cleanSym) >= 4 {
 			toks = append(toks, cleanSym)
 		}
-		// Include file path tokens and signature tokens for richer matching
+		// Include file path tokens, parent class tokens, and signature tokens for richer matching
 		fileToks := TokenizeIdentifier(s.File)
+		parentToks := TokenizeIdentifier(s.ParentClass)
 		sigToks := TokenizeIdentifier(s.Signature)
 
 		allToks := append(toks, fileToks...)
+		allToks = append(allToks, parentToks...)
 		allToks = append(allToks, sigToks...)
 
 		tf := make(map[string]int)
@@ -323,6 +326,7 @@ func (idx *BM25SymbolIndex) Score(query string, topN int) []BM25SymbolMatch {
 		}
 
 		if score > 0 {
+			score *= ComputeSubtokenSynergyBoost(queryTokens, doc.symbol)
 			matches = append(matches, BM25SymbolMatch{
 				Symbol: doc.symbol,
 				Score:  score,
@@ -2649,3 +2653,171 @@ func FindInRepoFaultOrigin(repoRoot string, rawOutput string) (targetFile string
 
 	return targetFile, targetLine, targetFunc, isStub, supportingFiles
 }
+
+// ComputeSubtokenSynergyBoost computes the Ascent 5 Phase 4 CamelCase <-> snake_case
+// subtoken synergy multiplier across file stem, parent class, and method/symbol name.
+func ComputeSubtokenSynergyBoost(queryTokens []string, s SymbolTag) float64 {
+	if len(queryTokens) == 0 {
+		return 1.0
+	}
+	qSet := make(map[string]bool, len(queryTokens))
+	for _, qt := range queryTokens {
+		qSet[strings.ToLower(qt)] = true
+	}
+
+	hasOverlap := func(ident string) bool {
+		if ident == "" {
+			return false
+		}
+		for _, sub := range TokenizeIdentifier(ident) {
+			if qSet[sub] {
+				return true
+			}
+		}
+		norm := strings.ReplaceAll(strings.ToLower(ident), "_", "")
+		return len(norm) >= 4 && qSet[norm]
+	}
+
+	stem := strings.TrimSuffix(filepath.Base(s.File), filepath.Ext(s.File))
+	matchedStem := hasOverlap(stem)
+	matchedClass := hasOverlap(s.ParentClass)
+	matchedSym := hasOverlap(s.Name)
+
+	dimensionsMatched := 0
+	if matchedStem {
+		dimensionsMatched++
+	}
+	if matchedClass {
+		dimensionsMatched++
+	}
+	if matchedSym {
+		dimensionsMatched++
+	}
+
+	switch dimensionsMatched {
+	case 3:
+		return 1.65 // File stem + ParentClass + Method triple synergy
+	case 2:
+		return 1.30 // Pairwise Class+Method or File+Method synergy
+	default:
+		return 1.0
+	}
+}
+
+// DiscoverMirrorTwins discovers coupled sync/async twins, 0-parameter mirror class/file methods,
+// and sibling methods across a repository so the local model never patches only half of a twin pair.
+func DiscoverMirrorTwins(primary SymbolTag, allSymbols []SymbolTag) []SymbolTag {
+	if primary.Name == "" || len(allSymbols) == 0 {
+		return nil
+	}
+	pName := primary.Name
+	pLower := strings.ToLower(pName)
+	pBase := filepath.Base(primary.File)
+
+	// Candidate sync/async twin names
+	twinNames := map[string]bool{
+		pLower: true,
+	}
+	if strings.HasPrefix(pLower, "async_") {
+		twinNames[strings.TrimPrefix(pLower, "async_")] = true
+		twinNames["a"+strings.TrimPrefix(pLower, "async_")] = true
+	} else if strings.HasPrefix(pLower, "a") && len(pLower) > 3 {
+		twinNames[pLower[1:]] = true
+		twinNames["async_"+pLower[1:]] = true
+	} else {
+		twinNames["async_"+pLower] = true
+		twinNames["a"+pLower] = true
+	}
+
+	var twins []SymbolTag
+	seen := make(map[string]bool)
+	primaryKey := fmt.Sprintf("%s:%s:%s:%d", primary.File, primary.ParentClass, primary.Name, primary.Line)
+	seen[primaryKey] = true
+
+	for _, cand := range allSymbols {
+		if isTestPath(cand.File) {
+			continue
+		}
+		candKey := fmt.Sprintf("%s:%s:%s:%d", cand.File, cand.ParentClass, cand.Name, cand.Line)
+		if seen[candKey] {
+			continue
+		}
+		cLower := strings.ToLower(cand.Name)
+		if !twinNames[cLower] {
+			continue
+		}
+
+		isSyncAsyncPair := cLower != pLower && (cand.File == primary.File || cand.ParentClass == primary.ParentClass)
+		isMirrorClassMethod := cLower == pLower && cand.File != primary.File &&
+			((primary.ParentClass != "" && cand.ParentClass == primary.ParentClass) || filepath.Base(cand.File) == pBase)
+		isSiblingClassMethod := cLower == pLower && cand.File == primary.File &&
+			primary.ParentClass != "" && cand.ParentClass != "" && cand.ParentClass != primary.ParentClass
+
+		if isSyncAsyncPair || isMirrorClassMethod || isSiblingClassMethod {
+			seen[candKey] = true
+			twins = append(twins, cand)
+		}
+	}
+	return twins
+}
+
+// FormatDocstringSkippingPreview formats a compact inline code preview for [startLine, endLine]
+// that retains the function/method signature, skips multi-line Python docstrings, and emits
+// high-density executable body lines.
+func FormatDocstringSkippingPreview(source string, startLine, endLine, maxLines int) string {
+	lines := strings.Split(source, "\n")
+	if len(lines) == 0 {
+		return ""
+	}
+	if maxLines <= 0 {
+		maxLines = 18
+	}
+	if startLine < 1 {
+		startLine = 1
+	}
+	if endLine > len(lines) || endLine < startLine {
+		endLine = len(lines)
+	}
+
+	var out []string
+	inDocstring := false
+	docDelim := ""
+	skippedLines := 0
+
+	for l := startLine; l <= endLine && len(out) < maxLines; l++ {
+		raw := lines[l-1]
+		trimmed := strings.TrimSpace(raw)
+
+		if l == startLine {
+			out = append(out, fmt.Sprintf("%4d: %s", l, raw))
+			continue
+		}
+
+		if !inDocstring && skippedLines == 0 && (strings.HasPrefix(trimmed, `"""`) || strings.HasPrefix(trimmed, `'''`)) {
+			delim := trimmed[:3]
+			rest := trimmed[3:]
+			if strings.Contains(rest, delim) {
+				// Single-line docstring
+				skippedLines++
+				continue
+			}
+			inDocstring = true
+			docDelim = delim
+			skippedLines++
+			continue
+		}
+
+		if inDocstring {
+			skippedLines++
+			if strings.Contains(trimmed, docDelim) {
+				inDocstring = false
+				out = append(out, fmt.Sprintf("      ... [%d docstring lines skipped] ...", skippedLines))
+			}
+			continue
+		}
+
+		out = append(out, fmt.Sprintf("%4d: %s", l, raw))
+	}
+	return strings.Join(out, "\n")
+}
+

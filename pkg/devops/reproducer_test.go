@@ -317,3 +317,41 @@ func errorsIs(err, target error) bool {
 	}
 	return err.Error() == target.Error() || strings.Contains(err.Error(), target.Error())
 }
+
+func TestAscent5Phase4_VerifyDualStateReproducer(t *testing.T) {
+	tempDir := t.TempDir()
+	modPath := filepath.Join(tempDir, "calc.py")
+	reproPath := filepath.Join(tempDir, "reproduce_issue.py")
+
+	baseFiles := map[string]string{
+		"calc.py": "def double(x):\n    return x + 1\n",
+	}
+	patchedFiles := map[string]string{
+		"calc.py": "def double(x):\n    return x * 2\n",
+	}
+	_ = os.WriteFile(modPath, []byte(patchedFiles["calc.py"]), 0644)
+
+	// 1. True FAIL_TO_PASS reproducer
+	reproScript := "import sys, calc\nassert calc.double(5) == 10\n"
+	_ = os.WriteFile(reproPath, []byte(reproScript), 0755)
+
+	res, err := devops.VerifyDualStateReproducer(context.Background(), reproPath, tempDir, baseFiles, patchedFiles, 3*time.Second)
+	if err != nil {
+		t.Fatalf("VerifyDualStateReproducer error: %v", err)
+	}
+	if !res.Verified || res.Status != "FAIL_TO_PASS" {
+		t.Fatalf("expected FAIL_TO_PASS verified=true, got: %+v", res)
+	}
+
+	// 2. False-positive no-op reproducer (passes on both with identical output) must be rejected
+	noopScript := "import calc\nprint('ok')\n"
+	_ = os.WriteFile(reproPath, []byte(noopScript), 0755)
+	noopRes, err := devops.VerifyDualStateReproducer(context.Background(), reproPath, tempDir, baseFiles, patchedFiles, 3*time.Second)
+	if err != nil {
+		t.Fatalf("VerifyDualStateReproducer noop error: %v", err)
+	}
+	if noopRes.Verified || noopRes.Status != "NO_OP_REJECTED" {
+		t.Fatalf("expected NO_OP_REJECTED verified=false, got: %+v", noopRes)
+	}
+}
+
