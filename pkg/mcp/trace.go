@@ -69,7 +69,7 @@ func (l LogLevel) String() string {
 // TraceEvent represents a single recorded MCP tool call or operational event.
 type TraceEvent struct {
 	Timestamp   time.Time      `json:"timestamp"`
-	Event       string         `json:"event"`                  // "tool_call", "request", "server_start", "workspace_update"
+	Event       string         `json:"event"` // "tool_call", "request", "server_start", "workspace_update"
 	RequestID   any            `json:"request_id,omitempty"`
 	Method      string         `json:"method,omitempty"`       // e.g. "tools/call", "initialize"
 	Tool        string         `json:"tool,omitempty"`         // e.g. "omnicoder_patch", "read_file"
@@ -79,6 +79,14 @@ type TraceEvent struct {
 	Error       string         `json:"error,omitempty"`        // Error message if any
 	ResultBytes int            `json:"result_bytes,omitempty"` // Size of response in bytes
 	Workspace   string         `json:"workspace,omitempty"`
+	Client      string         `json:"client,omitempty"` // MCP clientInfo, e.g. "Cline/3.2.0"
+	Model       string         `json:"model,omitempty"`  // Calling model id when the client reports one
+}
+
+// workspaceFollower copies later trace events into the active workspace log
+// while the original file remains a mirror.
+type workspaceFollower interface {
+	FollowWorkspace(dir string)
 }
 
 // TraceLogger is the interface for recording and auditing MCP server interactions.
@@ -100,13 +108,15 @@ type TracerConfig struct {
 
 // DefaultTracer is the standard thread-safe JSONL and stderr trace logger.
 type DefaultTracer struct {
-	mu       sync.Mutex
-	filePath string
-	file     *os.File
-	stderr   io.Writer
-	verbose  bool
-	level    LogLevel
-	closed   bool
+	mu         sync.Mutex
+	filePath   string
+	file       *os.File
+	activePath string
+	active     *os.File
+	stderr     io.Writer
+	verbose    bool
+	level      LogLevel
+	closed     bool
 }
 
 // NewDefaultTracer initializes a new DefaultTracer.
@@ -138,6 +148,14 @@ func NewDefaultTracer(cfg TracerConfig) *DefaultTracer {
 	return t
 }
 
+func writeTraceFile(f *os.File, data []byte) {
+	if f == nil {
+		return
+	}
+	_, _ = f.Write(data)
+	_ = f.Sync()
+}
+
 // SetLevel updates the logging level threshold.
 func (t *DefaultTracer) SetLevel(level LogLevel) {
 	t.mu.Lock()
@@ -167,13 +185,47 @@ func (t *DefaultTracer) Close() error {
 		return nil
 	}
 	t.closed = true
+	var err error
+	if t.active != nil && t.active != t.file {
+		_ = t.active.Sync()
+		err = t.active.Close()
+		t.active = nil
+	}
 	if t.file != nil {
 		_ = t.file.Sync()
-		err := t.file.Close()
+		if cerr := t.file.Close(); err == nil {
+			err = cerr
+		}
 		t.file = nil
-		return err
 	}
-	return nil
+	return err
+}
+
+// FollowWorkspace appends subsequent events to dir/.omnicoder/mcp_trace.jsonl
+// and keeps writing the original trace file.
+func (t *DefaultTracer) FollowWorkspace(dir string) {
+	if t == nil || strings.TrimSpace(dir) == "" {
+		return
+	}
+	path := filepath.Join(dir, ".omnicoder", "mcp_trace.jsonl")
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.closed || path == t.filePath || path == t.activePath {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return
+	}
+	if t.active != nil && t.active != t.file {
+		_ = t.active.Sync()
+		_ = t.active.Close()
+	}
+	t.active = f
+	t.activePath = path
 }
 
 // LogEvent records a trace event to the JSONL file and/or stderr.
@@ -190,13 +242,15 @@ func (t *DefaultTracer) LogEvent(event TraceEvent) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	// 1. Write structured JSON Lines entry if file is open
-	if t.file != nil && !t.closed {
-		data, err := json.Marshal(event)
-		if err == nil {
+	// 1. Write structured JSON Lines to the original file and, when the
+	// workspace has moved, to that workspace's trace as well.
+	if !t.closed {
+		if data, err := json.Marshal(event); err == nil {
 			data = append(data, '\n')
-			_, _ = t.file.Write(data)
-			_ = t.file.Sync()
+			writeTraceFile(t.file, data)
+			if t.active != nil && t.active != t.file {
+				writeTraceFile(t.active, data)
+			}
 		}
 	}
 

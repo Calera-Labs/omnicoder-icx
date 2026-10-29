@@ -433,26 +433,26 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 		}
 
 		return map[string]any{
-			"status":           "READY",
-			"workspace_root":   currentWS,
-			"is_ide_directory": IsIDEOsOrSystemDir(currentWS),
-			"host_os":          runtime.GOOS,
-			"host_arch":        runtime.GOARCH,
-			"default_shell":    defaultShell,
-			"path_separator":   string(filepath.Separator),
-			"line_ending":      lineEnding,
-			"backend":          sCtx.Config.Backend,
-			"model":            sCtx.Config.Model,
-			"active_model":     sCtx.Config.ActiveModel,
-			"is_offline":       sCtx.Config.IsOffline,
+			"status":                   "READY",
+			"workspace_root":           currentWS,
+			"is_ide_directory":         IsIDEOsOrSystemDir(currentWS),
+			"host_os":                  runtime.GOOS,
+			"host_arch":                runtime.GOARCH,
+			"default_shell":            defaultShell,
+			"path_separator":           string(filepath.Separator),
+			"line_ending":              lineEnding,
+			"backend":                  sCtx.Config.Backend,
+			"model":                    sCtx.Config.Model,
+			"active_model":             sCtx.Config.ActiveModel,
+			"is_offline":               sCtx.Config.IsOffline,
 			"sandbox_ready":            sCtx.VMClient != nil,
 			"sandbox_on":               sCtx.SandboxOn,
 			"tools_count":              len(s.ListTools()),
-			"typescript_ast_supported":  true,
-			"windows_junction_sandbox":  true,
-			"polyglot_ast_supported":    true,
-			"ast_cache_entries":         devops.GetASTCache().Count(),
-			"ast_cache_warmed":          devops.GetASTCache().Count() > 0,
+			"typescript_ast_supported": true,
+			"windows_junction_sandbox": true,
+			"polyglot_ast_supported":   true,
+			"ast_cache_entries":        devops.GetASTCache().Count(),
+			"ast_cache_warmed":         devops.GetASTCache().Count() > 0,
 			"environment":              sCtx.Config.MaskedCopy(),
 			"timestamp":                time.Now().UTC().Format(time.RFC3339),
 		}, nil
@@ -663,7 +663,7 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 	// 4. omnicoder_patch
 	_ = s.RegisterTool(ToolDefinition{
 		Name:        "omnicoder_patch",
-		Description: "Applies surgical edits (Aider SEARCH/REPLACE blocks, 1-indexed start_line/end_line ranges, or multi-chunk atomic refactoring). CRITICAL: Keep SEARCH blocks SHORT (3-8 lines of unique surrounding context). NEVER put hundreds of lines into SEARCH blocks. For multi-point refactors, pass chunks: [{start, end, content}, ...].",
+		Description: "Preferred shape: {path, old, new}. old is the exact text to replace and new is the replacement. Keep old short (3-8 unique lines). Aider SEARCH/REPLACE blocks and chunks still work. If chunks is a JSON string, it is parsed.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -671,12 +671,20 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 					"type":        "string",
 					"description": "Relative file path within the workspace.",
 				},
+				"old": map[string]any{
+					"type":        "string",
+					"description": "Exact existing text to replace. Preferred over chunks and line numbers.",
+				},
+				"new": map[string]any{
+					"type":        "string",
+					"description": "Replacement text for old.",
+				},
 				"content": map[string]any{
 					"type":        "string",
 					"description": "Aider search/replace blocks (<<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE), replacement lines (if using start_line/end_line), or full source.",
 				},
 				"chunks": map[string]any{
-					"type": "array",
+					"type":        "array",
 					"description": "Optional array of replacement chunks for multi-point atomic refactoring. Each chunk specifies start (or start_line), end (or end_line), and content. Chunks are applied atomically bottom-up to prevent line-drift.",
 					"items": map[string]any{
 						"type": "object",
@@ -1358,15 +1366,15 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 			exec.mu.RLock()
 			defer exec.mu.RUnlock()
 			resp := map[string]any{
-				"status":         exec.Status,
-				"execution_id":   exec.ID,
-				"command":        exec.Command,
-				"exit_code":      exec.ExitCode,
-				"stdout":         exec.Stdout,
-				"stderr":         exec.Stderr,
-				"duration_ms":    exec.DurationMs,
-				"rolled_back":    exec.RolledBack,
-				"advisory":       "Advisory: Sandbox is ephemeral. All filesystem mutations inside the sandbox are isolated from the workspace and discarded on command exit. To persist code changes to your workspace, use 'omnicoder_patch' or 'write_file'.",
+				"status":       exec.Status,
+				"execution_id": exec.ID,
+				"command":      exec.Command,
+				"exit_code":    exec.ExitCode,
+				"stdout":       exec.Stdout,
+				"stderr":       exec.Stderr,
+				"duration_ms":  exec.DurationMs,
+				"rolled_back":  exec.RolledBack,
+				"advisory":     "Advisory: Sandbox is ephemeral. All filesystem mutations inside the sandbox are isolated from the workspace and discarded on command exit. To persist code changes to your workspace, use 'omnicoder_patch' or 'write_file'.",
 			}
 			if exec.Error != "" {
 				resp["error"] = exec.Error
@@ -1798,13 +1806,17 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 	// 10. omnicoder_doctor
 	_ = s.RegisterTool(ToolDefinition{
 		Name:        "omnicoder_doctor",
-		Description: "Authority ground truth oracle for the workspace. Single-call diagnosis: inspects git status (branch, head commit, clean/dirty, uncommitted/untracked files), verifies milestone artifacts without errors, extracts declared version, and runs local compilation/test gates. Generates a markdown evidence badge with rich diagnostics (test pass counts, bundle size, lint status).",
+		Description: "Call at most once per task. Reports git status, version, and artifact presence. Build gates and lint default off for interactive clients (Cline, Cursor, Antigravity) and on otherwise. An identical repeat returns one line telling you to stop and use git_commit. Pass check_gates=true only when you need a build.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
+				"force": map[string]any{
+					"type":        "boolean",
+					"description": "If true, run again even when the previous doctor call had the same arguments and the tree is unchanged.",
+				},
 				"check_gates": map[string]any{
 					"type":        "boolean",
-					"description": "Whether to run build/vet/test gates (default: true).",
+					"description": "Whether to run build/vet/test gates. Default false for interactive clients (Cline, Cursor, Antigravity) and true otherwise.",
 				},
 				"check_artifacts": map[string]any{
 					"type": "array",
@@ -1827,7 +1839,7 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 				},
 				"check_lint": map[string]any{
 					"type":        "boolean",
-					"description": "Whether to inspect linter and formatting status for badge (default: true).",
+					"description": "Whether to inspect linter status. Default false for interactive clients and true otherwise.",
 				},
 				"bundle_paths": map[string]any{
 					"type": "array",
@@ -1841,7 +1853,8 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 	}, func(ctx context.Context, args map[string]any) (any, error) {
 		currentWS := s.ResolveEffectiveWorkspace(args, "")
 
-		checkGates := true
+		interactive := s.localInteractiveClient()
+		checkGates := !interactive
 		if cg, ok := args["check_gates"].(bool); ok {
 			checkGates = cg
 		}
@@ -1857,7 +1870,7 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 		if to, ok := args["gate_timeout_sec"].(float64); ok && to > 0 {
 			timeoutSec = int(to)
 		}
-		checkLint := true
+		checkLint := !interactive
 		if cl, ok := args["check_lint"].(bool); ok {
 			checkLint = cl
 		}
@@ -1889,7 +1902,25 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 			BundlePaths:     bundlePaths,
 		}
 
-		return devops.RunDoctor(ctx, opts)
+		force, _ := args["force"].(bool)
+		key := doctorCallKey(currentWS, checkGates, checkLint, includeGit, extractVersion, artifacts, bundlePaths)
+		fp := treeFingerprint(ctx, currentWS)
+		if !force && s.doctorRepeated(key, fp) {
+			return map[string]any{
+				"next":   "unchanged. Do not call omnicoder_doctor again. Next step is git_commit.",
+				"status": "UNCHANGED",
+			}, nil
+		}
+
+		res, err := devops.RunDoctor(ctx, opts)
+		if err != nil {
+			return nil, err
+		}
+		if !force {
+			s.noteDoctor(key, fp)
+		}
+		res.Next = doctorNextLine(res)
+		return res, nil
 	})
 
 	// 11. omnicoder_toggle_checklist
@@ -2942,4 +2973,3 @@ func (m *AsyncSandboxManager) Get(id string) (*AsyncExecution, bool) {
 	exec, ok := m.executions[id]
 	return exec, ok
 }
-

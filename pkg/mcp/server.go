@@ -42,6 +42,12 @@ type Server struct {
 
 	initialized bool
 	initMu      sync.RWMutex
+	clientName  string
+	clientModel string
+
+	doctorMu      sync.Mutex
+	lastDoctorKey string
+	lastDoctorFP  string
 
 	contentLengthFraming bool
 	autoFraming          bool
@@ -208,7 +214,10 @@ func (s *Server) SetWorkspace(dir string) error {
 
 	if oldDir != abs {
 		if s.tracer != nil {
-			s.tracer.LogEvent(TraceEvent{
+			if follower, ok := s.tracer.(workspaceFollower); ok && !IsIDEOsOrSystemDir(abs) {
+				follower.FollowWorkspace(abs)
+			}
+			s.logTrace(TraceEvent{
 				Timestamp: time.Now().UTC(),
 				Event:     "workspace_update",
 				Workspace: abs,
@@ -488,6 +497,7 @@ func (s *Server) UnregisterTool(name string) bool {
 
 // GetTool retrieves a tool definition and handler by name.
 func (s *Server) GetTool(name string) (ToolDefinition, ToolHandler, bool) {
+	name = canonicalToolName(name)
 	s.toolMu.RLock()
 	defer s.toolMu.RUnlock()
 
@@ -532,7 +542,7 @@ func (s *Server) Dispatch(ctx context.Context, name string, args map[string]any)
 		return nil, fmt.Errorf("method not found (code %d): %s", ErrCodeMethodNotFound, name)
 	}
 
-	normalizeToolArguments(name, args)
+	normalizeToolArguments(canonicalToolName(name), args)
 
 	if def.InputSchema != nil {
 		if violations := ValidateArguments(def.InputSchema, args); len(violations) > 0 {
@@ -550,6 +560,9 @@ func (s *Server) Dispatch(ctx context.Context, name string, args map[string]any)
 		}()
 		result, execErr = handler(ctx, args)
 	}()
+	if execErr == nil {
+		result = capOutboundResult(canonicalToolName(name), result)
+	}
 
 	return result, execErr
 }
@@ -824,15 +837,14 @@ func (s *Server) handleMessage(ctx context.Context, msgBytes []byte) {
 	case "initialize":
 		protoVersion := s.protoVersion
 		var targetWS string
+		var initParams InitializeParams
 		if len(req.Params) > 0 {
 			targetWS = ExtractWorkspaceFromHandshake(req.Params)
-			var p struct {
-				ProtocolVersion string `json:"protocolVersion"`
-			}
-			if err := json.Unmarshal(req.Params, &p); err == nil && p.ProtocolVersion != "" {
-				protoVersion = p.ProtocolVersion
+			if err := json.Unmarshal(req.Params, &initParams); err == nil && initParams.ProtocolVersion != "" {
+				protoVersion = initParams.ProtocolVersion
 			}
 		}
+		s.setClient(initParams)
 
 		if targetWS != "" {
 			_ = s.SetWorkspace(targetWS)
@@ -912,7 +924,7 @@ func (s *Server) handleToolCall(ctx context.Context, req *JSONRPCRequest) {
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		s.sendError(req.ID, ErrCodeInvalidParams, "Invalid params: "+err.Error())
 		if s.tracer != nil {
-			s.tracer.LogEvent(TraceEvent{
+			s.logTrace(TraceEvent{
 				Timestamp:  start,
 				Event:      "tool_call",
 				RequestID:  req.ID,
@@ -930,7 +942,7 @@ func (s *Server) handleToolCall(ctx context.Context, req *JSONRPCRequest) {
 	if !ok {
 		s.sendError(req.ID, ErrCodeMethodNotFound, fmt.Sprintf("Tool not found: %s", params.Name))
 		if s.tracer != nil {
-			s.tracer.LogEvent(TraceEvent{
+			s.logTrace(TraceEvent{
 				Timestamp:  start,
 				Event:      "tool_call",
 				RequestID:  req.ID,
@@ -947,7 +959,7 @@ func (s *Server) handleToolCall(ctx context.Context, req *JSONRPCRequest) {
 	}
 
 	// Normalize common parameter aliases from diverse AI agents before schema validation
-	normalizeToolArguments(params.Name, params.Arguments)
+	normalizeToolArguments(canonicalToolName(params.Name), params.Arguments)
 
 	// Draft 2020-12 Schema Validation Middleware
 	if def.InputSchema != nil {
@@ -960,7 +972,7 @@ func (s *Server) handleToolCall(ctx context.Context, req *JSONRPCRequest) {
 				IsError: true,
 			})
 			if s.tracer != nil {
-				s.tracer.LogEvent(TraceEvent{
+				s.logTrace(TraceEvent{
 					Timestamp:  start,
 					Event:      "tool_call",
 					RequestID:  req.ID,
@@ -994,6 +1006,9 @@ func (s *Server) handleToolCall(ctx context.Context, req *JSONRPCRequest) {
 		}()
 		result, execErr = handler(callCtx, params.Arguments)
 	}()
+	if execErr == nil {
+		result = capOutboundResult(canonicalToolName(params.Name), result)
+	}
 
 	durationMS := time.Since(start).Milliseconds()
 
@@ -1010,7 +1025,7 @@ func (s *Server) handleToolCall(ctx context.Context, req *JSONRPCRequest) {
 			if strings.Contains(execErr.Error(), "recovered from panic") {
 				status = "PANIC"
 			}
-			s.tracer.LogEvent(TraceEvent{
+			s.logTrace(TraceEvent{
 				Timestamp:  start,
 				Event:      "tool_call",
 				RequestID:  req.ID,
@@ -1075,7 +1090,7 @@ func (s *Server) handleToolCall(ctx context.Context, req *JSONRPCRequest) {
 		if isToolError {
 			status = "ERROR"
 		}
-		s.tracer.LogEvent(TraceEvent{
+		s.logTrace(TraceEvent{
 			Timestamp:   start,
 			Event:       "tool_call",
 			RequestID:   req.ID,
@@ -1129,6 +1144,27 @@ func normalizeToolArguments(toolName string, args map[string]any) {
 				if args[k] != nil {
 					args["chunks"] = args[k]
 					break
+				}
+			}
+		}
+		// Local models often send chunks as a JSON string. Parse it before
+		// schema validation, which requires an array.
+		if chunkText, ok := args["chunks"].(string); ok {
+			trimmed := strings.TrimSpace(chunkText)
+			if strings.HasPrefix(trimmed, "[") {
+				var parsed []any
+				if err := json.Unmarshal([]byte(trimmed), &parsed); err == nil {
+					args["chunks"] = parsed
+				} else {
+					delete(args, "chunks")
+					if args["content"] == nil || args["content"] == "" {
+						args["content"] = chunkText
+					}
+				}
+			} else {
+				delete(args, "chunks")
+				if args["content"] == nil || args["content"] == "" {
+					args["content"] = chunkText
 				}
 			}
 		}

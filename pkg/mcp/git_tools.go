@@ -16,6 +16,7 @@ import (
 
 // GitStatusResult reports structured git status.
 type GitStatusResult struct {
+	Next         string   `json:"next,omitempty"`
 	Branch       string   `json:"branch"`
 	Clean        bool     `json:"clean"`
 	Staged       []string `json:"staged"`
@@ -26,15 +27,19 @@ type GitStatusResult struct {
 
 // GitDiffResult reports unified diff string and metadata.
 type GitDiffResult struct {
-	Diff      string `json:"diff"`
-	Staged    bool   `json:"staged"`
-	Path      string `json:"path,omitempty"`
-	Empty     bool   `json:"empty"`
-	LineCount int    `json:"line_count"`
+	Next       string `json:"next,omitempty"`
+	Diff       string `json:"diff"`
+	Staged     bool   `json:"staged"`
+	Path       string `json:"path,omitempty"`
+	Empty      bool   `json:"empty"`
+	LineCount  int    `json:"line_count"`
+	Truncated  bool   `json:"truncated,omitempty"`
+	TotalBytes int    `json:"total_bytes,omitempty"`
 }
 
 // GitCommitResult reports commit hash and summary.
 type GitCommitResult struct {
+	Next       string   `json:"next,omitempty"`
 	CommitHash string   `json:"commit_hash"`
 	Message    string   `json:"message"`
 	Files      []string `json:"files,omitempty"`
@@ -150,7 +155,7 @@ func NewGitDiffTool(workspaceDir string) (ToolDefinition, ToolHandler) {
 func NewGitCommitTool(workspaceDir string) (ToolDefinition, ToolHandler) {
 	return ToolDefinition{
 		Name:        "git_commit",
-		Description: "Stages specified files (or all changes if empty) and creates a git commit.",
+		Description: "Stages specified files (or all changes if empty) and creates a git commit. Call this tool as git_commit. omnicoder_git_commit is accepted as an alias and is not a separate tool.",
 		InputSchema: GitCommitSchema,
 	}, func(ctx context.Context, args map[string]any) (any, error) {
 		return HandleGitCommit(ctx, workspaceDir, args)

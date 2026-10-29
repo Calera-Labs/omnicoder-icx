@@ -20,13 +20,13 @@ import (
 // DoctorOptions specifies configuration for repository diagnosis.
 type DoctorOptions struct {
 	WorkspaceDir    string   `json:"workspace_dir"`
-	CheckGates      bool     `json:"check_gates"`       // Whether to run build/vet/test gates (default: true)
-	CheckArtifacts  []string `json:"check_artifacts"`   // List of relative file/dir paths to check for presence
-	IncludeGit      bool     `json:"include_git"`       // Whether to inspect git branch, commit, and uncommitted status
-	ExtractVersion  bool     `json:"extract_version"`   // Whether to auto-detect project version from code/config
-	GateTimeoutSecs int      `json:"gate_timeout_sec"`  // Max timeout for test/gate runs (default: 45s)
-	CheckLint       bool     `json:"check_lint"`        // Whether to inspect linter and formatting status (default: true)
-	BundlePaths     []string `json:"bundle_paths"`      // Optional bundle/build paths to measure (e.g. dist, build, out)
+	CheckGates      bool     `json:"check_gates"`      // Whether to run build/vet/test gates (default: true)
+	CheckArtifacts  []string `json:"check_artifacts"`  // List of relative file/dir paths to check for presence
+	IncludeGit      bool     `json:"include_git"`      // Whether to inspect git branch, commit, and uncommitted status
+	ExtractVersion  bool     `json:"extract_version"`  // Whether to auto-detect project version from code/config
+	GateTimeoutSecs int      `json:"gate_timeout_sec"` // Max timeout for test/gate runs (default: 45s)
+	CheckLint       bool     `json:"check_lint"`       // Whether to inspect linter and formatting status (default: true)
+	BundlePaths     []string `json:"bundle_paths"`     // Optional bundle/build paths to measure (e.g. dist, build, out)
 }
 
 // GitSnapshot captures the instantaneous git state of the workspace.
@@ -53,6 +53,7 @@ type GateSnapshot struct {
 
 // DoctorResult represents the complete ground-truth state of the workspace.
 type DoctorResult struct {
+	Next          string          `json:"next,omitempty"` // First instruction for the calling model.
 	Workspace     string          `json:"workspace"`
 	Timestamp     string          `json:"timestamp"`
 	Git           GitSnapshot     `json:"git"`

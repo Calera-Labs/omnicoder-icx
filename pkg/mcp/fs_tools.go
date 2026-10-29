@@ -42,12 +42,15 @@ var windowsReservedNames = map[string]bool{
 
 // ReadFileResult represents the structured result of reading a file.
 type ReadFileResult struct {
+	Next       string `json:"next,omitempty"`
 	Path       string `json:"path"`
 	Content    string `json:"content"`
 	LineCount  int    `json:"line_count"`
 	ByteSize   int64  `json:"byte_size"`
 	TotalLines int    `json:"total_lines"`
 	TotalBytes int64  `json:"total_bytes"`
+	StartLine  int    `json:"start_line,omitempty"`
+	Truncated  bool   `json:"truncated,omitempty"`
 }
 
 // WriteFileResult represents the structured outcome of writing a file.
@@ -347,6 +350,7 @@ func HandleReadFile(ctx context.Context, workspaceDir string, args map[string]an
 		ByteSize:   int64(len(content)),
 		TotalLines: totalLines,
 		TotalBytes: totalBytes,
+		StartLine:  offset,
 	}, nil
 }
 
