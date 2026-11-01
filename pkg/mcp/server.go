@@ -49,6 +49,10 @@ type Server struct {
 	lastDoctorKey string
 	lastDoctorFP  string
 
+	repeatMu   sync.Mutex
+	repeatFP   string
+	repeatKeys map[string]struct{}
+
 	contentLengthFraming bool
 	autoFraming          bool
 	msgWg                sync.WaitGroup
@@ -542,12 +546,17 @@ func (s *Server) Dispatch(ctx context.Context, name string, args map[string]any)
 		return nil, fmt.Errorf("method not found (code %d): %s", ErrCodeMethodNotFound, name)
 	}
 
-	normalizeToolArguments(canonicalToolName(name), args)
+	canon := canonicalToolName(name)
+	normalizeToolArguments(canon, args)
 
 	if def.InputSchema != nil {
 		if violations := ValidateArguments(def.InputSchema, args); len(violations) > 0 {
 			return nil, fmt.Errorf("schema validation failed: %s", FormatViolations(violations))
 		}
+	}
+
+	if rep, stop := s.refuseRepeatedInteractive(ctx, canon, args); stop {
+		return rep, nil
 	}
 
 	var result any
@@ -561,7 +570,9 @@ func (s *Server) Dispatch(ctx context.Context, name string, args map[string]any)
 		result, execErr = handler(ctx, args)
 	}()
 	if execErr == nil {
-		result = capOutboundResult(canonicalToolName(name), result)
+		result = capOutboundResult(canon, result)
+		result = s.stampInteractiveResult(canon, args, result)
+		s.noteInteractiveCall(ctx, canon, args)
 	}
 
 	return result, execErr

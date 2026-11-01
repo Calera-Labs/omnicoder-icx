@@ -1,2 +1,4 @@
 You decide which tools to use.
 Do not call omnicoder_run or omnicoder_swarm from this chat.
+Call fetch_web_content at most once. Do not invent doc URLs. Do not list the same directory twice.
+After writing code, call omnicoder_heal once and fix what it reports before you finish.

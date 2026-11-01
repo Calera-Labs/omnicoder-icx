@@ -211,8 +211,8 @@ func TestMCP_ClientHandshake(t *testing.T) {
 	if initResult.ServerInfo.Name != "omnicoder-mcp" {
 		t.Errorf("expected server name omnicoder-mcp, got %q", initResult.ServerInfo.Name)
 	}
-	if initResult.ServerInfo.Version != "1.0.0" {
-		t.Errorf("expected server version 1.0.0, got %q", initResult.ServerInfo.Version)
+	if initResult.ServerInfo.Version != mcp.DefaultServerVersion {
+		t.Errorf("expected server version %s, got %q", mcp.DefaultServerVersion, initResult.ServerInfo.Version)
 	}
 	if initResult.ProtocolVersion != "2024-11-05" {
 		t.Errorf("expected protocol version 2024-11-05, got %q", initResult.ProtocolVersion)
@@ -832,7 +832,7 @@ func TestOmniCoderCLI_BinaryExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to execute 'omnicoder version': %v\nOutput: %s", err, string(verOut))
 	}
-	if !strings.Contains(string(verOut), "OmniCoder-ICX v1.0.0") {
+	if !strings.Contains(string(verOut), "OmniCoder-ICX v1.1.0") {
 		t.Errorf("unexpected version output: %s", string(verOut))
 	}
 

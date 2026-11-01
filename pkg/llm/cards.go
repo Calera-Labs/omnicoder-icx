@@ -872,32 +872,60 @@ var trailingCommaRegex = regexp.MustCompile(`,(\s*[}\]])`)
 
 // escapeControlCharsInJSON escapes raw unescaped control characters (tabs, newlines, CRs)
 // located inside JSON string literals so that standard JSON unmarshaling succeeds.
-func escapeControlCharsInJSON(s string) string {
-	var b strings.Builder
-	b.Grow(len(s) + 16)
-	inString := false
-	escaped := false
+func isHexDigitByte(c byte) bool {
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+}
 
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if inString {
-			if escaped {
-				escaped = false
-				if c == '\n' {
-					b.WriteByte('n')
-					continue
-				}
-				if c == '\r' {
-					b.WriteByte('r')
-					continue
-				}
-				if c == '\t' {
-					b.WriteByte('t')
-					continue
-				}
-				b.WriteByte(c)
-				continue
-			}
+func isValidUnicodeEscapeAt(s string, idx int) bool {
+    if idx+4 > len(s) {
+        return false
+    }
+    return isHexDigitByte(s[idx]) && isHexDigitByte(s[idx+1]) && isHexDigitByte(s[idx+2]) && isHexDigitByte(s[idx+3])
+}
+
+// escapeControlCharsInJSON escapes raw unescaped control characters (tabs, newlines, CRs)
+// and invalid backslash escape sequences (e.g. Python regexes like \w, \A, \Z, \s, \d, \')
+// located inside JSON string literals so that standard RFC 8259 JSON unmarshaling succeeds.
+func escapeControlCharsInJSON(s string) string {
+    var b strings.Builder
+    b.Grow(len(s) + 32)
+    inString := false
+    escaped := false
+
+    for i := 0; i < len(s); i++ {
+        c := s[i]
+        if inString {
+            if escaped {
+                escaped = false
+                if c == '\n' {
+                    b.WriteByte('n')
+                    continue
+                }
+                if c == '\r' {
+                    b.WriteByte('r')
+                    continue
+                }
+                if c == '\t' {
+                    b.WriteByte('t')
+                    continue
+                }
+                switch c {
+                case '"', '\\', '/', 'b', 'f', 'n', 'r', 't':
+                    b.WriteByte(c)
+                case 'u':
+                    if isValidUnicodeEscapeAt(s, i+1) {
+                        b.WriteByte(c)
+                    } else {
+                        b.WriteByte('\\')
+                        b.WriteByte(c)
+                    }
+                default:
+                    // Non-JSON escape (e.g. \w, \A, \Z, \d, \s, \., \', \(, \)): double the backslash
+                    b.WriteByte('\\')
+                    b.WriteByte(c)
+                }
+                continue
+            }
 			if c == '\\' {
 				escaped = true
 				b.WriteByte(c)
@@ -1021,6 +1049,7 @@ type GateIntentCard struct {
 	RepoMapSummary   string   `json:"repo_map_summary"`
 	FocusFiles       []string `json:"focus_files,omitempty"`
 	TrajectoryRibbon string   `json:"trajectory_ribbon,omitempty"`
+	TokenBudget      int      `json:"token_budget,omitempty"`
 }
 
 // IntentDecision captures the high-level intent, affected files, and rationale.
@@ -1031,15 +1060,19 @@ type IntentDecision struct {
 	Confidence  float64       `json:"confidence,omitempty"`
 }
 
-// FormatPrompt constructs system and user prompts bounded strictly below 300 tokens.
+// FormatPrompt constructs system and user prompts bounded strictly below 300 tokens (or c.TokenBudget when set).
 func (c *GateIntentCard) FormatPrompt() (systemPrompt, userPrompt string, err error) {
+	budget := MaxCardTokenBudget
+	if c.TokenBudget > 0 {
+		budget = c.TokenBudget
+	}
 	systemPrompt = "You are OmniCoder GateIntent. Given prompt and repo map, decide operation (MODIFY, CREATE, REFACTOR, EXPLAIN) and target files. Output strictly JSON: {\"operation\":\"...\",\"target_files\":[\"...\"],\"rationale\":\"...\"}. Subfolder Policy: All application code must be placed in projects/<project-name>/ (e.g. projects/my-app/...). Never place project code in root pkg/ or cmd/."
 
 	var sb strings.Builder
 	sb.WriteString("User Task: ")
 
 	sysTokens := EstimateTokens(systemPrompt)
-	availableTokens := MaxCardTokenBudget - sysTokens - 15
+	availableTokens := budget - sysTokens - 15
 	if availableTokens < 60 {
 		availableTokens = 60
 	}
@@ -1065,8 +1098,8 @@ func (c *GateIntentCard) FormatPrompt() (systemPrompt, userPrompt string, err er
 	}
 
 	userPrompt = sb.String()
-	if err := ValidateTokenBudget(systemPrompt, userPrompt, MaxCardTokenBudget); err != nil {
-		userPrompt = clampTextToBudget(systemPrompt+" User Task: ", c.UserPrompt, MaxCardTokenBudget-10)
+	if err := ValidateTokenBudget(systemPrompt, userPrompt, budget); err != nil {
+		userPrompt = clampTextToBudget(systemPrompt+" User Task: ", c.UserPrompt, budget-10)
 	}
 	return systemPrompt, userPrompt, nil
 }
@@ -1091,6 +1124,7 @@ type GateEditCard struct {
 	ASTRibbon        string   `json:"ast_ribbon,omitempty"`
 	TrajectoryRibbon string   `json:"trajectory_ribbon,omitempty"`
 	UnifiedDiffMode  bool     `json:"unified_diff_mode,omitempty"`
+	TokenBudget      int      `json:"token_budget,omitempty"`
 }
 
 // EditDecision contains synthesized edits adhering to ICX invariants.
@@ -1194,15 +1228,18 @@ func FormatASTRibbonFromStrings(rootName string, items []string, maxTokens int) 
 	return res
 }
 
-// FormatPrompt constructs system and user prompts bounded strictly below 300 tokens.
+// FormatPrompt constructs system and user prompts bounded strictly below 300 tokens (or c.TokenBudget when set).
 func (c *GateEditCard) FormatPrompt() (systemPrompt, userPrompt string, err error) {
 	systemPrompt = "You are OmniCoder GateEdit. Synthesize minimal search/replace edit blocks to fulfill instruction. Maintain existing signatures. Output strictly JSON: {\"file_path\":\"...\",\"edit_blocks\":[{\"search_text\":\"...\",\"replace_text\":\"...\"}],\"explanation\":\"...\"}"
 
-	const maxTotalBudget = MaxCardTokenBudget // 300
-	const targetBudget = maxTotalBudget - 5    // 295 token ceiling for safety margin
+	maxTotalBudget := MaxCardTokenBudget // 300
+	if c.TokenBudget > 0 {
+		maxTotalBudget = c.TokenBudget
+	}
+	targetBudget := maxTotalBudget - 5 // safety margin
 
 	sysTokens := EstimateTokens(systemPrompt)
-	availUserTokens := targetBudget - sysTokens // typically ~225-228 tokens
+	availUserTokens := targetBudget - sysTokens // typically ~225-228 tokens when budget=300
 
 	// 1. Mandatory File header
 	filePath := c.FilePath
@@ -1250,7 +1287,12 @@ func (c *GateEditCard) FormatPrompt() (systemPrompt, userPrompt string, err erro
 	rawInst := c.Instruction
 	instTokens := EstimateTokens("Instruction: " + rawInst + "\n")
 	maxInstructionTokens := 140
-	if hasCode {
+	if maxTotalBudget > MaxCardTokenBudget {
+		maxInstructionTokens = maxTotalBudget / 2
+		if maxInstructionTokens > 1200 {
+			maxInstructionTokens = 1200
+		}
+	} else if hasCode {
 		maxInstructionTokens = 65 // Reserve generous budget for code snippet
 	}
 	instructionText := rawInst
@@ -1335,11 +1377,11 @@ func (c *GateEditCard) FormatPrompt() (systemPrompt, userPrompt string, err erro
 	}
 	userPrompt = sb.String()
 
-	// 7. Strict Invariant Guarantee: Total tokens < MaxCardTokenBudget (300)
+	// 7. Strict Invariant Guarantee: Total tokens < maxTotalBudget
 	// Progressively trim from secondary components (Trajectory first, then AST ribbon, then instruction tail,
 	// preserving the code snippet so search/replace anchors are not lost).
 	// "File: " and "Instruction: " headers are NEVER stripped.
-	for EstimateTokens(systemPrompt+" "+userPrompt) >= MaxCardTokenBudget {
+	for EstimateTokens(systemPrompt+" "+userPrompt) >= maxTotalBudget {
 		if trajIdx := strings.Index(userPrompt, "Trajectory: "); trajIdx != -1 {
 			trajEnd := strings.Index(userPrompt[trajIdx:], "\n")
 			if trajEnd != -1 {
@@ -1685,6 +1727,9 @@ func (g *LLMDecisionGate) DecideIntent(ctx context.Context, card GateIntentCard)
 		return nil, errors.New("llm: decision gate client is nil")
 	}
 
+	if card.TokenBudget == 0 && IsLargeContextModel(g.model) {
+		card.TokenBudget = 1800
+	}
 	sysPrompt, userPrompt, err := card.FormatPrompt()
 	if err != nil {
 		return nil, err
@@ -1692,7 +1737,7 @@ func (g *LLMDecisionGate) DecideIntent(ctx context.Context, card GateIntentCard)
 
 	temp := 0.1
 	var respFmt *ResponseFormat
-	if IsGeminiModel(g.model) {
+	if SupportsJSONObjectFormat(g.model) {
 		respFmt = &ResponseFormat{Type: "json_object"}
 	}
 	req := &ChatCompletionRequest{
@@ -1702,6 +1747,7 @@ func (g *LLMDecisionGate) DecideIntent(ctx context.Context, card GateIntentCard)
 			{Role: "user", Content: userPrompt},
 		},
 		Temperature:     &temp,
+		MaxTokens:       1024,
 		ResponseFormat:  respFmt,
 	}
 
@@ -1736,6 +1782,9 @@ func (g *LLMDecisionGate) DecideEdit(ctx context.Context, card GateEditCard) (*E
 		return nil, errors.New("llm: decision gate client is nil")
 	}
 
+	if card.TokenBudget == 0 && IsLargeContextModel(g.model) {
+		card.TokenBudget = 2800
+	}
 	sysPrompt, userPrompt, err := card.FormatPrompt()
 	if err != nil {
 		return nil, err
@@ -1743,7 +1792,7 @@ func (g *LLMDecisionGate) DecideEdit(ctx context.Context, card GateEditCard) (*E
 
 	temp := 0.2
 	var respFmt *ResponseFormat
-	if IsGeminiModel(g.model) {
+	if SupportsJSONObjectFormat(g.model) {
 		respFmt = &ResponseFormat{Type: "json_object"}
 	}
 	req := &ChatCompletionRequest{
@@ -1753,7 +1802,7 @@ func (g *LLMDecisionGate) DecideEdit(ctx context.Context, card GateEditCard) (*E
 			{Role: "user", Content: userPrompt},
 		},
 		Temperature:     &temp,
-		MaxTokens:       1536,
+		MaxTokens:       2048,
 		ResponseFormat:  respFmt,
 	}
 
@@ -1802,6 +1851,10 @@ func (g *LLMDecisionGate) DecideEdit(ctx context.Context, card GateEditCard) (*E
 				}
 			}
 			decision.Explanation = "parsed from raw unified diff"
+		} else if looseBlocks, looseFP, looseSummary := parseLooseJSONEditBlocks(resp.Content(), card.FilePath); len(looseBlocks) > 0 {
+			decision.FilePath = looseFP
+			decision.EditBlocks = looseBlocks
+			decision.Explanation = looseSummary
 		} else {
 			return nil, fmt.Errorf("llm: GateEdit json extraction error: %w", err)
 		}
@@ -1836,18 +1889,22 @@ func (g *LLMDecisionGate) DecideHeal(ctx context.Context, card GateHealCard) (*H
 
 	temp := 0.1
 	var respFmt *ResponseFormat
-	if IsGeminiModel(g.model) {
+	if SupportsJSONObjectFormat(g.model) {
 		respFmt = &ResponseFormat{Type: "json_object"}
 	}
 	promptTokens := EstimateTokens(sysPrompt + " " + userPrompt)
 	if codeEst := int(float64(len(sysPrompt)+len(userPrompt)) / 2.60); codeEst > promptTokens {
 		promptTokens = codeEst
 	}
-	maxTokens := 1024
-	if 8192-promptTokens-128 < maxTokens {
-		maxTokens = 8192 - promptTokens - 128
-		if maxTokens < 384 {
-			maxTokens = 384
+	maxTokens := 2048
+	contextWindow := 8192
+	if IsLargeContextModel(g.model) {
+		contextWindow = 24576
+	}
+	if contextWindow-promptTokens-128 < maxTokens {
+		maxTokens = contextWindow - promptTokens - 128
+		if maxTokens < 512 {
+			maxTokens = 512
 		}
 	}
 
@@ -1893,21 +1950,25 @@ func (g *LLMDecisionGate) DecideHealSpeculative(ctx context.Context, card GateHe
 
 	fmt.Fprintf(os.Stderr, "  [GateHealSpeculative UserPrompt Sent to LLM (k=%d)]:\n%s\n", k, userPrompt)
 
-	temp := 0.6
+	temp := 0.65
 	topP := 0.95
 	var respFmt *ResponseFormat
-	if IsGeminiModel(g.model) {
+	if SupportsJSONObjectFormat(g.model) {
 		respFmt = &ResponseFormat{Type: "json_object"}
 	}
 	promptTokens := EstimateTokens(sysPrompt + " " + userPrompt)
 	if codeEst := int(float64(len(sysPrompt)+len(userPrompt)) / 2.60); codeEst > promptTokens {
 		promptTokens = codeEst
 	}
-	maxTokens := 1024
-	if 8192-promptTokens-128 < maxTokens {
-		maxTokens = 8192 - promptTokens - 128
-		if maxTokens < 384 {
-			maxTokens = 384
+	maxTokens := 2048
+	contextWindow := 8192
+	if IsLargeContextModel(g.model) {
+		contextWindow = 24576
+	}
+	if contextWindow-promptTokens-128 < maxTokens {
+		maxTokens = contextWindow - promptTokens - 128
+		if maxTokens < 512 {
+			maxTokens = 512
 		}
 	}
 
@@ -2010,6 +2071,104 @@ func (g *LLMDecisionGate) DecideHealSpeculative(ctx context.Context, card GateHe
 	return decisions, nil
 }
 
+// extractJSONStringAfterKey extracts a JSON string value immediately following `"key":` in s,
+// returning the unescaped string and the index after the closing quote, or ("", -1) on failure.
+func extractJSONStringAfterKey(s, key string) (string, int) {
+	needle := `"` + key + `"`
+	idx := strings.Index(s, needle)
+	if idx == -1 {
+		return "", -1
+	}
+	pos := idx + len(needle)
+	for pos < len(s) && (s[pos] == ' ' || s[pos] == '\t' || s[pos] == '\r' || s[pos] == '\n') {
+		pos++
+	}
+	if pos >= len(s) || s[pos] != ':' {
+		return "", -1
+	}
+	pos++
+	for pos < len(s) && (s[pos] == ' ' || s[pos] == '\t' || s[pos] == '\r' || s[pos] == '\n') {
+		pos++
+	}
+	if pos >= len(s) || s[pos] != '"' {
+		return "", -1
+	}
+	startQuote := pos
+	pos++
+	escaped := false
+	for pos < len(s) {
+		ch := s[pos]
+		if escaped {
+			escaped = false
+			pos++
+			continue
+		}
+		if ch == '\\' {
+			escaped = true
+			pos++
+			continue
+		}
+		if ch == '"' {
+			rawLiteral := s[startQuote : pos+1]
+			sanitizedLiteral := escapeControlCharsInJSON(rawLiteral)
+			var val string
+			if err := json.Unmarshal([]byte(sanitizedLiteral), &val); err == nil {
+				return val, pos + 1
+			}
+			return "", -1
+		}
+		pos++
+	}
+	return "", -1
+}
+
+// parseLooseJSONEditBlocks salvages edit_blocks from truncated or partially malformed JSON responses.
+func parseLooseJSONEditBlocks(content string, defaultFilePath string) ([]EditBlockData, string, string) {
+	filePath := defaultFilePath
+	if fp, _ := extractJSONStringAfterKey(content, "file_path"); strings.TrimSpace(fp) != "" {
+		filePath = filepath.ToSlash(strings.TrimSpace(fp))
+	}
+	var blocks []EditBlockData
+	rem := content
+	for {
+		sVal, nextIdx := extractJSONStringAfterKey(rem, "search_text")
+		if nextIdx == -1 {
+			break
+		}
+		blockFP := filePath
+		// Check if there was a local file_path right before search_text
+		sIdx := strings.Index(rem, `"search_text"`)
+		if sIdx > 0 {
+			if localFP, _ := extractJSONStringAfterKey(rem[:sIdx], "file_path"); strings.TrimSpace(localFP) != "" {
+				blockFP = filepath.ToSlash(strings.TrimSpace(localFP))
+			}
+		}
+		rem = rem[nextIdx:]
+		rVal, rNextIdx := extractJSONStringAfterKey(rem, "replace_text")
+		if rNextIdx == -1 {
+			break
+		}
+		rem = rem[rNextIdx:]
+		if strings.TrimSpace(sVal) != "" || strings.TrimSpace(rVal) != "" {
+			blocks = append(blocks, EditBlockData{
+				FilePath:    blockFP,
+				SearchText:  sVal,
+				ReplaceText: rVal,
+			})
+		}
+	}
+	if len(blocks) == 0 {
+		return nil, "", ""
+	}
+	summary := "salvaged from partial JSON edit_blocks"
+	if s, _ := extractJSONStringAfterKey(content, "repair_summary"); strings.TrimSpace(s) != "" {
+		summary = strings.TrimSpace(s)
+	} else if s, _ := extractJSONStringAfterKey(content, "explanation"); strings.TrimSpace(s) != "" {
+		summary = strings.TrimSpace(s)
+	}
+	return blocks, filePath, summary
+}
+
 // parseHealDecisionContent parses LLM completion text into a HealDecision via JSON, Aider blocks, or diffs.
 func parseHealDecisionContent(content string, defaultFilePath string) (*HealDecision, error) {
 	var decision HealDecision
@@ -2051,6 +2210,10 @@ func parseHealDecisionContent(content string, defaultFilePath string) (*HealDeci
 				}
 			}
 			decision.RepairSummary = "repaired via raw unified diff block"
+		} else if looseBlocks, looseFP, looseSummary := parseLooseJSONEditBlocks(content, defaultFilePath); len(looseBlocks) > 0 {
+			decision.FilePath = looseFP
+			decision.EditBlocks = looseBlocks
+			decision.RepairSummary = looseSummary
 		} else {
 			return nil, fmt.Errorf("llm: GateHeal json extraction error: %w\n[Raw LLM Output]:\n%s", err, content)
 		}
@@ -2089,7 +2252,7 @@ func (g *LLMDecisionGate) DecideFinalize(ctx context.Context, card GateFinalizeC
 
 	temp := 0.1
 	var respFmt *ResponseFormat
-	if IsGeminiModel(g.model) {
+	if SupportsJSONObjectFormat(g.model) {
 		respFmt = &ResponseFormat{Type: "json_object"}
 	}
 	req := &ChatCompletionRequest{
@@ -2171,7 +2334,7 @@ func (g *LLMDecisionGate) DecideReproducer(ctx context.Context, card GateReprodu
 
 	temp := 0.1
 	var respFmt *ResponseFormat
-	if IsGeminiModel(g.model) {
+	if SupportsJSONObjectFormat(g.model) {
 		respFmt = &ResponseFormat{Type: "json_object"}
 	}
 	req := &ChatCompletionRequest{
@@ -2181,6 +2344,7 @@ func (g *LLMDecisionGate) DecideReproducer(ctx context.Context, card GateReprodu
 			{Role: "user", Content: userPrompt},
 		},
 		Temperature:     &temp,
+		MaxTokens:       2048,
 		ResponseFormat:  respFmt,
 	}
 

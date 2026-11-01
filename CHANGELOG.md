@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [1.1.0] — 2026-11-01
+
+### Added
+- **Open-Weights & Guided JSON Resilience (`pkg/llm`)**:
+  - Automatic non-RFC-8259 JSON backslash sanitization (`\w`, `\s`, `\d`, `\A`, `\Z`, `\'`, invalid `\u`) inside JSON string literals via `escapeControlCharsInJSON`.
+  - Truncated JSON edit-block extraction (`parseLooseJSONEditBlocks`, `extractJSONStringAfterKey`) when `finish_reason="length"` cuts off mid-response.
+  - Guided JSON mode (`response_format: {"type": "json_object"}`) across all 6 decision gates via `SupportsJSONObjectFormat`, with automatic HTTP `400`/`422` fallback in `Client.Complete`.
+  - Dynamic 24,576-token context ceilings and 2,048-token output budgets for 27B–70B+ and large-context models (`IsLargeContextModel`).
+- **Best-Candidate Speculative Beam Retention & Elision-Safe Patching (`cmd/omnicoder`, `pkg/devops`)**:
+  - `executeHeal` retains and applies the highest-scoring syntax-valid candidate (`bestFallbackBlocks`) across speculative beam turns (`--beam-k > 1`) when multi-step problems require partial progress.
+  - `ReplaceFuzzy` automatically strips synthetic prompt context headers (`# --- Additional Relevant`, `=== Swarm Supporting File:`) and splices across `... (docstring elided)` markers.
+  - Added `--cmd` / `--command` flags to `omnicoder heal` and auto-inlined root `PROMPT.md` instructions in `--direct` mode while preserving syntactically valid deliverables.
+- **MCP Local-Model Guardrails & Telemetry (`pkg/mcp`)**:
+  - Immediate syntax and Go same-package `func main()` collision detection (`checkWrittenFileSyntaxAndCollisions`) on `write_file` and `omnicoder_patch`, surfaced via `syntax_warning` and `next` steering hints.
+  - Compact local-model tool schemas, interactive `next` hints, and `.clinerules` guidance for local/open-weights MCP agents.
+  - Unredacted `token_budget`, `max_tokens`, and token count fields in `.omnicoder/mcp_trace.jsonl` (`SanitizeArguments`).
+
+---
+
 ## [1.0.0] — 2026-10-26
 
 ### Added

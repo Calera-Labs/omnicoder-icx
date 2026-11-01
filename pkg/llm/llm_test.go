@@ -1255,3 +1255,49 @@ func TestDecideHealSpeculative(t *testing.T) {
 	})
 }
 
+func TestJSONExtraction_PythonRegexBackslashes_And_TruncatedFallback(t *testing.T) {
+	t.Parallel()
+
+	// Exact Gemma 4 31B output from django__django-11099 containing unescaped \w, \A, \Z inside JSON string literals
+	rawGemmaJSON := `{"root_cause":"Regex uses $ which allows trailing newline","file_path":"django/contrib/auth/validators.py","edit_blocks":[{"file_path":"django/contrib/auth/validators.py","search_text":"    regex = r'^[\w.@+-]+$'","replace_text":"    regex = r'\A[\w.@+-]+\Z'"}],"repair_summary":"Use \A and \Z in username validator regex"}`
+
+	var dec llm.HealDecision
+	if err := llm.ExtractJSON(rawGemmaJSON, &dec); err != nil {
+		t.Fatalf("ExtractJSON failed on Python regex backslashes: %v", err)
+	}
+	if len(dec.EditBlocks) != 1 {
+		t.Fatalf("expected 1 edit block, got %d", len(dec.EditBlocks))
+	}
+	if dec.EditBlocks[0].SearchText != `    regex = r'^[\w.@+-]+$'` {
+		t.Errorf("unexpected SearchText: %q", dec.EditBlocks[0].SearchText)
+	}
+	if dec.EditBlocks[0].ReplaceText != `    regex = r'\A[\w.@+-]+\Z'` {
+		t.Errorf("unexpected ReplaceText: %q", dec.EditBlocks[0].ReplaceText)
+	}
+
+	// Truncated JSON mid-stream after replace_text
+	truncatedJSON := `{"root_cause":"long explanation","file_path":"pkg/calc.py","edit_blocks":[{"search_text":"return a - b","replace_text":"return a + b"}],"repair_summary":"truncated mid`
+	mockClient := llm.NewMockLLMClient()
+	mockClient.CannedContent = truncatedJSON
+	gate := llm.NewDecisionGate(mockClient, "google/gemma-4-31B-it-qat-w4a16-ct")
+	healDec, err := gate.DecideHeal(context.Background(), llm.GateHealCard{
+		FilePath:     "pkg/calc.py",
+		ErrorLine:    10,
+		ErrorMessage: "AssertionError",
+	})
+	if err != nil {
+		t.Fatalf("DecideHeal failed on truncated JSON with complete edit_blocks: %v", err)
+	}
+	if len(healDec.EditBlocks) != 1 || healDec.EditBlocks[0].ReplaceText != "return a + b" {
+		t.Fatalf("unexpected salvaged edit blocks: %+v", healDec.EditBlocks)
+	}
+	if req := mockClient.LastRequest(); req != nil {
+		if req.ResponseFormat == nil || req.ResponseFormat.Type != "json_object" {
+			t.Errorf("expected ResponseFormat json_object for gemma model, got %+v", req.ResponseFormat)
+		}
+		if req.MaxTokens < 2048 {
+			t.Errorf("expected MaxTokens >= 2048 for 32k gemma model, got %d", req.MaxTokens)
+		}
+	}
+}
+

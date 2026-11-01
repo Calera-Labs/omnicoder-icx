@@ -19,7 +19,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go/ast"
+	"go/parser"
+	"go/token"
+
 	"github.com/caleralabs/omnicoder-icx/pkg/canonical"
+	"github.com/caleralabs/omnicoder-icx/pkg/devops"
 )
 
 var defaultIgnoredDirs = map[string]bool{
@@ -55,10 +60,12 @@ type ReadFileResult struct {
 
 // WriteFileResult represents the structured outcome of writing a file.
 type WriteFileResult struct {
-	Path         string `json:"path"`
-	BytesWritten int    `json:"bytes_written"`
-	SHA256       string `json:"sha256"`
-	Status       string `json:"status"` // "WRITTEN"
+	Next          string `json:"next,omitempty"`
+	Path          string `json:"path"`
+	BytesWritten  int    `json:"bytes_written"`
+	SHA256        string `json:"sha256"`
+	Status        string `json:"status"` // "WRITTEN"
+	SyntaxWarning string `json:"syntax_warning,omitempty"`
 }
 
 // DirectoryEntry represents a file or folder discovered in a directory listing.
@@ -457,13 +464,57 @@ func HandleWriteFile(ctx context.Context, workspaceDir string, args map[string]a
 	committed = true
 
 	sha := canonical.SHA256Bytes([]byte(content))
+	syntaxWarn := checkWrittenFileSyntaxAndCollisions(targetPath, pathStr, content)
 
 	return &WriteFileResult{
-		Path:         filepath.ToSlash(pathStr),
-		BytesWritten: n,
-		SHA256:       sha,
-		Status:       "WRITTEN",
+		Path:          filepath.ToSlash(pathStr),
+		BytesWritten:  n,
+		SHA256:        sha,
+		Status:        "WRITTEN",
+		SyntaxWarning: syntaxWarn,
 	}, nil
+}
+
+// checkWrittenFileSyntaxAndCollisions runs a fast (<1ms) in-memory syntax and package collision check.
+func checkWrittenFileSyntaxAndCollisions(targetPath, relPath, content string) string {
+	if _, _, fastErr := devops.ValidateCandidatePatchFast(relPath, "", content); fastErr != nil {
+		return fastErr.Error()
+	}
+	if strings.HasSuffix(strings.ToLower(targetPath), ".go") && !strings.HasSuffix(strings.ToLower(targetPath), "_test.go") {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, targetPath, content, 0)
+		if err != nil {
+			return err.Error()
+		}
+		hasMain := false
+		for _, decl := range f.Decls {
+			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv == nil && fn.Name != nil && fn.Name.Name == "main" {
+				hasMain = true
+				break
+			}
+		}
+		if hasMain {
+			dir := filepath.Dir(targetPath)
+			base := filepath.Base(targetPath)
+			if entries, rErr := os.ReadDir(dir); rErr == nil {
+				for _, e := range entries {
+					if e.IsDir() || e.Name() == base || !strings.HasSuffix(strings.ToLower(e.Name()), ".go") || strings.HasSuffix(strings.ToLower(e.Name()), "_test.go") {
+						continue
+					}
+					otherF, pErr := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, e.Name()), nil, 0)
+					if pErr != nil {
+						continue
+					}
+					for _, decl := range otherF.Decls {
+						if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv == nil && fn.Name != nil && fn.Name.Name == "main" {
+							return fmt.Sprintf("duplicate func main() in directory (also declared in %s); remove duplicate main or place in a separate subdirectory", e.Name())
+						}
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // HandleListDirectory lists directory contents within the workspace.

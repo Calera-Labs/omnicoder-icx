@@ -71,8 +71,67 @@ func TestLocalCline_DoctorRepeatAndCheapDefault(t *testing.T) {
 	if repeat["status"] != "UNCHANGED" {
 		t.Fatalf("expected UNCHANGED, got %#v", repeat)
 	}
-	if !strings.Contains(repeat["next"].(string), "git_commit") {
+	if !strings.Contains(repeat["next"].(string), "omnicoder_heal") {
 		t.Fatalf("repeat next line: %#v", repeat["next"])
+	}
+}
+
+func TestLocalCline_RepeatListRefusesAndWriteSaysHeal(t *testing.T) {
+	dir := t.TempDir()
+	srv := mcp.NewServer(dir)
+	defer srv.Close()
+	mcp.RegisterOmniCoderTools(srv, nil)
+	srv.SetClientInfo("Cline", "meta/muse-glimmer")
+
+	ctx := context.Background()
+	first, err := srv.Dispatch(ctx, "list_directory", map[string]any{"path": "."})
+	if err != nil {
+		t.Fatalf("list failed: %v", err)
+	}
+	listed, ok := first.(map[string]any)
+	if !ok {
+		t.Fatalf("expected listed map, got %T", first)
+	}
+	if !strings.Contains(listed["next"].(string), "omnicoder_heal") {
+		t.Fatalf("first list next: %#v", listed["next"])
+	}
+
+	second, err := srv.Dispatch(ctx, "list_directory", map[string]any{"path": "."})
+	if err != nil {
+		t.Fatalf("repeat list failed: %v", err)
+	}
+	repeat, ok := second.(map[string]any)
+	if !ok || repeat["status"] != "UNCHANGED" {
+		t.Fatalf("expected UNCHANGED, got %#v", second)
+	}
+	if !strings.Contains(repeat["next"].(string), "omnicoder_heal") {
+		t.Fatalf("repeat list next: %#v", repeat["next"])
+	}
+
+	wrote, err := srv.Dispatch(ctx, "write_file", map[string]any{
+		"path":    "main.go",
+		"content": "package main\nfunc main() {}\n",
+	})
+	if err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+	wf, ok := wrote.(*mcp.WriteFileResult)
+	if !ok {
+		t.Fatalf("expected WriteFileResult, got %T", wrote)
+	}
+	if !strings.Contains(wf.Next, "omnicoder_heal") || !strings.Contains(wf.Next, "main.go") {
+		t.Fatalf("write next: %q", wf.Next)
+	}
+
+	after, err := srv.Dispatch(ctx, "list_directory", map[string]any{"path": "."})
+	if err != nil {
+		t.Fatalf("list after write failed: %v", err)
+	}
+	if _, ok := after.(map[string]any); !ok {
+		t.Fatalf("list after write should succeed once, got %T", after)
+	}
+	if m, ok := after.(map[string]any); ok && m["status"] == "UNCHANGED" {
+		t.Fatal("write should allow one new listing")
 	}
 }
 
@@ -145,5 +204,51 @@ func TestLocalCline_TraceFollowsWorkspaceAndStampsClient(t *testing.T) {
 		if ev.Event != "workspace_update" || ev.Workspace != other {
 			t.Fatalf("%s event=%s workspace=%s", path, ev.Event, ev.Workspace)
 		}
+	}
+}
+
+func TestWriteFile_DuplicateMainWarning_And_TraceTokenBudget(t *testing.T) {
+	dir := t.TempDir()
+	srv := mcp.NewServer(dir)
+	defer srv.Close()
+	mcp.RegisterOmniCoderTools(srv, nil)
+	srv.SetClientInfo("Cline", "google/gemma-4-31B-it")
+
+	ctx := context.Background()
+	_, err := srv.Dispatch(ctx, "write_file", map[string]any{
+		"path":    "main.go",
+		"content": "package main\nfunc main() {}\n",
+	})
+	if err != nil {
+		t.Fatalf("first write failed: %v", err)
+	}
+
+	second, err := srv.Dispatch(ctx, "write_file", map[string]any{
+		"path":    "second.go",
+		"content": "package main\nfunc main() {}\n",
+	})
+	if err != nil {
+		t.Fatalf("second write failed: %v", err)
+	}
+	wf, ok := second.(*mcp.WriteFileResult)
+	if !ok {
+		t.Fatalf("expected *mcp.WriteFileResult, got %T", second)
+	}
+	if !strings.Contains(wf.SyntaxWarning, "duplicate func main()") {
+		t.Fatalf("expected duplicate func main() warning, got: %q", wf.SyntaxWarning)
+	}
+	if !strings.Contains(wf.Next, "WARNING:") {
+		t.Fatalf("expected WARNING in Next line, got: %q", wf.Next)
+	}
+
+	sanitized := mcp.SanitizeArguments(map[string]any{
+		"token_budget": 1200,
+		"api_key":      "secret123",
+	})
+	if sanitized["token_budget"] == "[REDACTED]" {
+		t.Fatalf("token_budget must not be redacted: %#v", sanitized)
+	}
+	if sanitized["api_key"] != "[REDACTED]" {
+		t.Fatalf("api_key must be redacted: %#v", sanitized)
 	}
 }

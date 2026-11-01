@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	Version        = "1.0.0"
+	Version        = "1.1.0"
 	DefaultModel   = "gemini-3.5-flash-lite"
 	LocalMockModel = "qwen2.5-coder:7b"
 )
@@ -1323,6 +1323,8 @@ func executeHeal(ctx context.Context, cfg *GlobalConfig, args []string) error {
 	healFS := flag.NewFlagSet("heal", flag.ContinueOnError)
 	bindGlobalFlags(healFS, cfg)
 	healIssue := healFS.String("issue", "", "Issue description or problem statement for context")
+	healCmdFlag := healFS.String("cmd", "", "Target test or build command to heal")
+	healCommandFlag := healFS.String("command", "", "Alias for --cmd")
 	if err := parseWithRearrangedArgs(healFS, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -1331,12 +1333,13 @@ func executeHeal(ctx context.Context, cfg *GlobalConfig, args []string) error {
 	}
 
 	posArgs := healFS.Args()
-	if len(posArgs) < 1 {
-		fmt.Fprintf(os.Stderr, "Error: command required for 'heal'\n\nUsage: omnicoder heal [options] \"<command>\"\n")
-		return errors.New("missing command")
+	cmdToRun := strings.TrimSpace(strings.Join(posArgs, " "))
+	if cmdToRun == "" {
+		cmdToRun = strings.TrimSpace(*healCmdFlag)
 	}
-	cmdToRun := strings.Join(posArgs, " ")
-	cmdToRun = strings.TrimSpace(cmdToRun)
+	if cmdToRun == "" {
+		cmdToRun = strings.TrimSpace(*healCommandFlag)
+	}
 	if cmdToRun == "" {
 		fmt.Fprintf(os.Stderr, "Error: command required for 'heal'\n\nUsage: omnicoder heal [options] \"<command>\"\n")
 		return errors.New("missing command")
@@ -1525,6 +1528,9 @@ func executeHeal(ctx context.Context, cfg *GlobalConfig, args []string) error {
 	var cachedLocTraceback string
 	var llmRequestedFile string
 	var llmRequestedHint string
+	var bestFallbackBlocks []devops.EditBlock
+	var bestFallbackSummary string
+	bestFallbackScore := -99999
 
 	// Iterative healing loop
 	for attempt := 1; attempt <= cfg.MaxTurns; attempt++ {
@@ -2896,6 +2902,11 @@ func executeHeal(ctx context.Context, cfg *GlobalConfig, args []string) error {
 				llmRequestedHint = nextLLMRequestedHint
 			}
 			if closestDecision != nil && len(closestBlocks) > 0 {
+				if len(bestFallbackBlocks) == 0 || closestScore >= bestFallbackScore {
+					bestFallbackBlocks = closestBlocks
+					bestFallbackSummary = closestDecision.RepairSummary
+					bestFallbackScore = closestScore
+				}
 				var patchSnippets []string
 				for _, b := range closestBlocks {
 					patchSnippets = append(patchSnippets, fmt.Sprintf("--- %s\n+++ %s\n- %s\n+ %s", b.FilePath, b.FilePath, b.SearchText, b.ReplaceText))
@@ -3089,6 +3100,16 @@ func executeHeal(ctx context.Context, cfg *GlobalConfig, args []string) error {
 		report = newReport
 		lastTurnReflection = fmt.Sprintf("Turn %d note: Applied partial fix to %s, remaining diagnostics: %d, exit: %d. Continue fixing remaining assertion.", attempt, targetFP, len(report.Diagnostics), report.ExitCode)
 		fmt.Printf("  Command still failing (exit code %d). Remaining diagnostics: %d\n", report.ExitCode, len(report.Diagnostics))
+	}
+
+	if len(modifiedFiles) == 0 && len(bestFallbackBlocks) > 0 {
+		if applyRes, applyErr := devops.ApplyEditBlocks(devops.EditBlockRequest{
+			RepoPath:   cfg.Workspace,
+			Blocks:     bestFallbackBlocks,
+			FuzzyMatch: true,
+		}); applyErr == nil && applyRes != nil && applyRes.Applied {
+			fmt.Printf("  [omnicoder heal] Retained best syntax-verified candidate (%s) rather than leaving empty workspace.\n", bestFallbackSummary)
+		}
 	}
 
 	fmt.Fprintf(os.Stderr, "\n[omnicoder heal] Halting: Max turns (%d) reached without passing.\n", cfg.MaxTurns)

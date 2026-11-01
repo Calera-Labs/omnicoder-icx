@@ -46,6 +46,24 @@ func IsGeminiModel(model string) bool {
 	return strings.Contains(m, "gemini")
 }
 
+// IsLargeContextModel reports whether the given model name indicates a 32k+ context model
+// (e.g. Gemini, Gemma 2/3/4, Qwen 2.5/3, DeepSeek, Llama 3+, Mistral/Codestral, GPT-4/5, o1/o3/o4).
+func IsLargeContextModel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	for _, tok := range []string{"gemini", "gemma", "qwen", "deepseek", "llama-3", "llama3", "mistral", "codestral", "gpt-4", "gpt-5", "claude", "o1", "o3", "o4"} {
+		if strings.Contains(m, tok) {
+			return true
+		}
+	}
+	return false
+}
+
+// SupportsJSONObjectFormat reports whether the target model supports structured JSON output
+// via response_format={"type":"json_object"} on OpenAI-compatible endpoints (including vLLM).
+func SupportsJSONObjectFormat(model string) bool {
+	return IsGeminiModel(model) || IsLargeContextModel(model)
+}
+
 // IsGeminiKey reports whether the given API key matches standard Gemini / Google AI Studio patterns.
 func IsGeminiKey(apiKey string) bool {
 	k := strings.TrimSpace(apiKey)

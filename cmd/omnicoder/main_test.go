@@ -263,7 +263,7 @@ func TestExistingSubcommands_Preserved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version command failed: %v\nOutput: %s", err, string(outVersion))
 	}
-	if !strings.Contains(string(outVersion), "OmniCoder-ICX v1.0.0") {
+	if !strings.Contains(string(outVersion), "OmniCoder-ICX v"+Version) {
 		t.Errorf("unexpected version output: %s", string(outVersion))
 	}
 

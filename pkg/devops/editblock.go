@@ -199,15 +199,33 @@ func ReplaceFuzzy(content, searchText, replaceText string, allowFuzzy bool) (str
 	searchNorm := StripLineNumberPrefixes(strings.ReplaceAll(searchText, "\r\n", "\n"))
 	replaceNorm := StripLineNumberPrefixes(strings.ReplaceAll(replaceText, "\r\n", "\n"))
 
+	stripSyntheticHeaders := func(s string) string {
+		if !strings.Contains(s, "--- Additional Relevant") && !strings.Contains(s, "=== Swarm Supporting File:") && !strings.Contains(s, "=== Primary ") {
+			return s
+		}
+		var out []string
+		for _, line := range strings.Split(s, "\n") {
+			t := strings.TrimSpace(line)
+			if strings.HasPrefix(t, "# --- Additional Relevant") || strings.HasPrefix(t, "// --- Additional Relevant") ||
+				strings.HasPrefix(t, "=== Swarm Supporting File:") || strings.HasPrefix(t, "=== Primary ") {
+				continue
+			}
+			out = append(out, line)
+		}
+		return strings.Join(out, "\n")
+	}
+	searchNorm = stripSyntheticHeaders(searchNorm)
+	replaceNorm = stripSyntheticHeaders(replaceNorm)
+
 	isElisionLine := func(s string) bool {
 		t := strings.TrimSpace(s)
 		return strings.HasPrefix(t, "...") || strings.HasPrefix(t, "# ...") || strings.HasPrefix(t, "// ...") ||
-			strings.Contains(t, "docstring elided") || strings.Contains(t, "lines elided")
+			strings.Contains(t, "docstring elided") || strings.Contains(t, "lines elided") || strings.Contains(t, "lines folded]")
 	}
 
 	// If both searchNorm and replaceNorm share an unchanged prefix or suffix containing an elision marker
 	// (e.g. "... (docstring elided)"), strip the unchanged elided prefix/suffix before matching.
-	if strings.Contains(searchNorm, "...") || strings.Contains(searchNorm, "elided") {
+	if strings.Contains(searchNorm, "...") || strings.Contains(searchNorm, "elided") || strings.Contains(searchNorm, "folded]") {
 		sTmp := strings.Split(searchNorm, "\n")
 		rTmp := strings.Split(replaceNorm, "\n")
 		pre := 0
@@ -241,6 +259,41 @@ func ReplaceFuzzy(content, searchText, replaceText string, allowFuzzy bool) (str
 		if cutPost > 0 && cutPost < len(sTmp) && cutPost < len(rTmp) {
 			sTmp = sTmp[:len(sTmp)-cutPost]
 			rTmp = rTmp[:len(rTmp)-cutPost]
+		}
+		// Also handle when searchNorm still contains an elided docstring after an unchanged `def ` / `class ` signature,
+		// while replaceNorm omitted the elision marker per prompt rules: strip the unchanged signature + docstring from both
+		// so the original docstring on disk is preserved and the body lines match cleanly.
+		if len(sTmp) >= 4 && len(rTmp) >= 2 && strings.TrimSpace(sTmp[0]) == strings.TrimSpace(rTmp[0]) {
+			sElideIdx := -1
+			for k := 1; k < len(sTmp); k++ {
+				if isElisionLine(sTmp[k]) {
+					sElideIdx = k
+					break
+				}
+			}
+			if sElideIdx > 0 {
+				sBodyStart := sElideIdx + 1
+				if sBodyStart < len(sTmp) && (strings.Contains(sTmp[sBodyStart], `"""`) || strings.Contains(sTmp[sBodyStart], `'''`)) {
+					sBodyStart++
+				}
+				rBodyStart := 1
+				if rBodyStart < len(rTmp) && (strings.Contains(rTmp[rBodyStart], `"""`) || strings.Contains(rTmp[rBodyStart], `'''`)) {
+					q := `"""`
+					if strings.Contains(rTmp[rBodyStart], `'''`) {
+						q = `'''`
+					}
+					qCnt := strings.Count(rTmp[rBodyStart], q)
+					rBodyStart++
+					for rBodyStart < len(rTmp) && qCnt < 2 {
+						qCnt += strings.Count(rTmp[rBodyStart], q)
+						rBodyStart++
+					}
+				}
+				if sBodyStart < len(sTmp) && rBodyStart < len(rTmp) {
+					sTmp = sTmp[sBodyStart:]
+					rTmp = rTmp[rBodyStart:]
+				}
+			}
 		}
 		searchNorm = strings.Join(sTmp, "\n")
 		replaceNorm = strings.Join(rTmp, "\n")

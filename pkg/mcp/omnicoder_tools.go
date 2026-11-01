@@ -851,7 +851,7 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 				return nil, fmt.Errorf("patch application failed: %w", err)
 			}
 
-			return map[string]any{
+			resMap := map[string]any{
 				"status":         "PATCHED",
 				"path":           relPath,
 				"blocks_applied": applyRes.BlocksApplied,
@@ -859,7 +859,13 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 				"patch_id":       applyRes.PatchID,
 				"lines_added":    applyRes.LinesAdded,
 				"lines_removed":  applyRes.LinesRemoved,
-			}, nil
+			}
+			if patchedBytes, rErr := os.ReadFile(targetFullPath); rErr == nil {
+				if warn := checkWrittenFileSyntaxAndCollisions(targetFullPath, relPath, string(patchedBytes)); warn != "" {
+					resMap["syntax_warning"] = warn
+				}
+			}
+			return resMap, nil
 		}
 
 		// Case B / Case C / Case Multi-Chunk
@@ -967,6 +973,9 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 			"path":          relPath,
 			"bytes_written": len(finalContent),
 			"sha256":        canonical.SHA256Bytes([]byte(finalContent)),
+		}
+		if warn := checkWrittenFileSyntaxAndCollisions(targetFullPath, relPath, finalContent); warn != "" {
+			resp["syntax_warning"] = warn
 		}
 		if len(parsedChunks) > 0 {
 			resp["status"] = "PATCHED"
@@ -1906,8 +1915,12 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 		key := doctorCallKey(currentWS, checkGates, checkLint, includeGit, extractVersion, artifacts, bundlePaths)
 		fp := treeFingerprint(ctx, currentWS)
 		if !force && s.doctorRepeated(key, fp) {
+			next := "unchanged. Do not call omnicoder_doctor again. Next step is git_commit."
+			if !checkGates {
+				next = "unchanged. Do not call omnicoder_doctor again. Next step is omnicoder_heal."
+			}
 			return map[string]any{
-				"next":   "unchanged. Do not call omnicoder_doctor again. Next step is git_commit.",
+				"next":   next,
 				"status": "UNCHANGED",
 			}, nil
 		}

@@ -1086,6 +1086,23 @@ func executeConversationalTurn(ctx context.Context, session *Session, prompt str
 			"DO NOT create a nested 'projects/' or 'apps/' subfolder. The test runner executes directly against the workspace root.\n\n",
 			fileList, primaryFile, primaryFile)
 		currentPrompt = directive + currentPrompt
+	} else if _, err := os.Stat(filepath.Join(ws, "PROMPT.md")); err == nil {
+		session.SetActiveProject(".")
+		rootExerciseFiles = append(rootExerciseFiles, "PROMPT.md")
+	}
+
+	// Auto-inline PROMPT.md when present at workspace root so the LLM sees the full problem specification on Turn 1.
+	if promptBytes, err := os.ReadFile(filepath.Join(ws, "PROMPT.md")); err == nil {
+		specText := strings.TrimSpace(string(promptBytes))
+		if specText != "" && !strings.Contains(currentPrompt, "=== WORKSPACE SPECIFICATION (PROMPT.md) ===") {
+			if len(specText) > 16000 {
+				specText = specText[:16000] + "\n... [truncated]"
+			}
+			currentPrompt = fmt.Sprintf("=== IN-PLACE ROOT EXERCISE DIRECTIVE ===\n"+
+				"Write your solution directly in the workspace root (e.g. [ACTION:WRITE path=\"solution.py\"]). Do NOT create a nested 'projects/' or 'apps/' subfolder.\n\n"+
+				"=== WORKSPACE SPECIFICATION (PROMPT.md) ===\n%s\n===========================================\n\n%s",
+				specText, currentPrompt)
+		}
 	}
 
 	isErrorReport, reportedMissingTool, errSummary := DetectUserErrorReport(prompt)
@@ -1263,9 +1280,19 @@ func executeConversationalTurn(ctx context.Context, session *Session, prompt str
 					theme.Yellow("Preserved newly scaffolded project files on disk for inspection and iterative healing."))
 				return
 			}
+			isRootExercise := len(rootExerciseFiles) > 0
 			reverted := 0
 			for relPath, snapshot := range turnSnapshots {
 				fullPath := filepath.Join(ws, filepath.FromSlash(relPath))
+				// In root exercise workspaces (e.g. LiveCodeBench / Polyglot), preserve syntactically valid code deliverables
+				// so subsequent self-heal passes or benchmark evaluators do not see an empty or unedited stub.
+				if isRootExercise {
+					if curBytes, rErr := os.ReadFile(fullPath); rErr == nil && len(bytes.TrimSpace(curBytes)) > 0 {
+						if _, _, fastErr := devops.ValidateCandidatePatchFast(relPath, string(snapshot), string(curBytes)); fastErr == nil {
+							continue
+						}
+					}
+				}
 				if snapshot == nil {
 					if err := os.Remove(fullPath); err == nil {
 						reverted++

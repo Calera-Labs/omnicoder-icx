@@ -248,7 +248,7 @@ func (c *Client) Complete(ctx context.Context, req *ChatCompletionRequest) (*Cha
 		case http.StatusForbidden:
 			statusErr.Err = ErrForbidden
 			return nil, statusErr
-		case http.StatusBadRequest:
+		case http.StatusBadRequest, http.StatusUnprocessableEntity:
 			respStr := string(respBytes)
 			if strings.Contains(respStr, "maximum context length") || strings.Contains(respStr, "output tokens") || strings.Contains(respStr, "input_tokens") || strings.Contains(respStr, "max_tokens") {
 				if req.MaxTokens > 1024 {

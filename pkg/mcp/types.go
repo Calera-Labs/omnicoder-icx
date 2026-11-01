@@ -20,7 +20,7 @@ const (
 	JSONRPCVersion         = "2.0"
 	DefaultProtocolVersion = "2024-11-05"
 	DefaultServerName      = "omnicoder-mcp"
-	DefaultServerVersion   = "1.0.0"
+	DefaultServerVersion   = "1.1.0"
 	MaxMessageSize         = 64 * 1024 * 1024 // 64 MB maximum message payload
 	MaxHeaderLines         = 32               // Maximum header lines for Content-Length framing
 )

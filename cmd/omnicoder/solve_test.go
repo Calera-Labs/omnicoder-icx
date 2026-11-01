@@ -229,3 +229,55 @@ func TestSolveFallbackWhenNoReproducerFails(t *testing.T) {
 		t.Fatalf("expected fallback repair diff to include fixed greeting, got:\n%s", patchStr)
 	}
 }
+
+func TestHealCmdFlagSupport(t *testing.T) {
+	buggyGo := "package main\n\nfunc main() {\n\tprintln(undefinedVar)\n}\n"
+	repoDir := initTempGitRepo(t, map[string]string{
+		"go.mod":  "module testhealcmd\n\ngo 1.22\n",
+		"main.go": buggyGo,
+	})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		respPayload := map[string]any{
+			"id":      "chatcmpl-heal-cmd",
+			"object":  "chat.completion",
+			"created": 1700000000,
+			"model":   "google/gemma-4-31B-it-qat-w4a16-ct",
+			"choices": []map[string]any{
+				{
+					"index": 0,
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": `{"root_cause":"undefinedVar is not declared","file_path":"main.go","edit_blocks":[{"file_path":"main.go","search_text":"\tprintln(undefinedVar)","replace_text":"\tprintln(\"fixed\")"}],"repair_summary":"replace undefinedVar with string literal"}`,
+					},
+					"finish_reason": "stop",
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(respPayload)
+	}))
+	defer server.Close()
+
+	cfg := defaultGlobalConfig()
+	cfg.Workspace = repoDir
+	cfg.BaseURL = server.URL
+	cfg.Model = "google/gemma-4-31B-it-qat-w4a16-ct"
+
+	err := executeHeal(context.Background(), &cfg, []string{
+		"--cmd", "go build .",
+		"--max-turns", "1",
+		"--workspace", repoDir,
+	})
+	if err != nil {
+		t.Fatalf("executeHeal with --cmd failed: %v", err)
+	}
+
+	patched, rErr := os.ReadFile(filepath.Join(repoDir, "main.go"))
+	if rErr != nil {
+		t.Fatalf("read main.go: %v", rErr)
+	}
+	if !strings.Contains(string(patched), `println("fixed")`) {
+		t.Fatalf("expected main.go to be healed via --cmd flag, got:\n%s", string(patched))
+	}
+}

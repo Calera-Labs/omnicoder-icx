@@ -341,6 +341,9 @@ func sanitizeValue(key string, val any) any {
 }
 
 func isSensitiveKey(key string) bool {
+	if key == "token_budget" || key == "max_tokens" || key == "prompt_tokens" || key == "completion_tokens" || key == "total_tokens" {
+		return false
+	}
 	return strings.Contains(key, "password") ||
 		strings.Contains(key, "api_key") ||
 		strings.Contains(key, "apikey") ||

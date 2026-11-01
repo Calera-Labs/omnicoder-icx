@@ -145,10 +145,179 @@ func treeFingerprint(ctx context.Context, dir string) string {
 }
 
 func doctorNextLine(res *devops.DoctorResult) string {
+	if res != nil && !res.Gates.Ran {
+		return "doctor done. Do not call omnicoder_doctor again. Next step is omnicoder_heal."
+	}
 	if res != nil && res.Git.IsRepo && !res.Git.IsClean {
 		return "doctor done. Do not call omnicoder_doctor again. Next step is git_commit."
 	}
 	return "doctor done. Do not call omnicoder_doctor again."
+}
+
+// repeatableInteractiveTools are the calls a local model retries after an OK
+// result. A second call with the same arguments, while the tree is unchanged,
+// is a loop, not progress.
+func repeatableInteractiveTool(name string) bool {
+	switch name {
+	case "list_directory", "read_file", "omnicoder_map", "omnicoder_status":
+		return true
+	default:
+		return false
+	}
+}
+
+func interactiveMutatingTool(name string) bool {
+	switch name {
+	case "write_file", "omnicoder_patch":
+		return true
+	default:
+		return false
+	}
+}
+
+func argString(args map[string]any, key, fallback string) string {
+	if args == nil {
+		return fallback
+	}
+	v, ok := args[key].(string)
+	if !ok {
+		return fallback
+	}
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return fallback
+	}
+	return v
+}
+
+func argBool(args map[string]any, key string) bool {
+	if args == nil {
+		return false
+	}
+	v, ok := args[key].(bool)
+	return ok && v
+}
+
+func argNumber(args map[string]any, key string) int {
+	if args == nil {
+		return 0
+	}
+	switch v := args[key].(type) {
+	case int:
+		return v
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
+}
+
+func interactiveArgKey(tool string, args map[string]any) string {
+	pick := map[string]any{"tool": tool}
+	switch tool {
+	case "list_directory":
+		pick["path"] = argString(args, "path", ".")
+		pick["recursive"] = argBool(args, "recursive")
+		pick["max_depth"] = argNumber(args, "max_depth")
+	case "read_file":
+		pick["path"] = argString(args, "path", "")
+		pick["offset"] = argNumber(args, "offset")
+		pick["limit"] = argNumber(args, "limit")
+		pick["start_line"] = argNumber(args, "start_line")
+		pick["end_line"] = argNumber(args, "end_line")
+	default:
+		pick["path"] = argString(args, "path", "")
+	}
+	b, err := json.Marshal(pick)
+	if err != nil {
+		return tool
+	}
+	return string(b)
+}
+
+func (s *Server) clearInteractiveSeen() {
+	s.repeatMu.Lock()
+	s.repeatFP = ""
+	s.repeatKeys = nil
+	s.repeatMu.Unlock()
+}
+
+// refuseRepeatedInteractive stops a local model from listing, mapping, or
+// reading the same target again when the tree has not changed.
+func (s *Server) refuseRepeatedInteractive(ctx context.Context, tool string, args map[string]any) (any, bool) {
+	if !s.localInteractiveClient() || !repeatableInteractiveTool(tool) {
+		return nil, false
+	}
+	ws := s.ResolveEffectiveWorkspace(args, "")
+	fp := treeFingerprint(ctx, ws)
+	key := interactiveArgKey(tool, args)
+	s.repeatMu.Lock()
+	defer s.repeatMu.Unlock()
+	if s.repeatFP != fp || s.repeatKeys == nil {
+		return nil, false
+	}
+	if _, seen := s.repeatKeys[key]; !seen {
+		return nil, false
+	}
+	return map[string]any{
+		"status": "UNCHANGED",
+		"next":   "unchanged. Do not call " + tool + " again. Next step is omnicoder_heal.",
+	}, true
+}
+
+func (s *Server) noteInteractiveCall(ctx context.Context, tool string, args map[string]any) {
+	if !s.localInteractiveClient() {
+		return
+	}
+	if interactiveMutatingTool(tool) {
+		s.clearInteractiveSeen()
+		return
+	}
+	if !repeatableInteractiveTool(tool) {
+		return
+	}
+	ws := s.ResolveEffectiveWorkspace(args, "")
+	fp := treeFingerprint(ctx, ws)
+	key := interactiveArgKey(tool, args)
+	s.repeatMu.Lock()
+	defer s.repeatMu.Unlock()
+	if s.repeatFP != fp || s.repeatKeys == nil {
+		s.repeatFP = fp
+		s.repeatKeys = map[string]struct{}{}
+	}
+	s.repeatKeys[key] = struct{}{}
+}
+
+// stampInteractiveResult puts the next action on the first line a local model
+// will follow. write_file and a directory listing otherwise look like success
+// with no stop.
+func (s *Server) stampInteractiveResult(tool string, args map[string]any, result any) any {
+	if !s.localInteractiveClient() || result == nil {
+		return result
+	}
+	switch tool {
+	case "write_file":
+		if r, ok := result.(*WriteFileResult); ok && r != nil && r.Next == "" {
+			if r.SyntaxWarning != "" {
+				r.Next = "wrote " + r.Path + " (WARNING: " + r.SyntaxWarning + "). Call omnicoder_heal once to fix."
+			} else {
+				r.Next = "wrote " + r.Path + ". Call omnicoder_heal once. Do not list_directory or read the file back."
+			}
+		}
+	case "list_directory":
+		if entries, ok := result.([]DirectoryEntry); ok {
+			path := argString(args, "path", ".")
+			return map[string]any{
+				"next":    "listed " + path + ". Do not list this path again. Next step is omnicoder_heal.",
+				"entries": entries,
+			}
+		}
+	case "read_file":
+		if r, ok := result.(*ReadFileResult); ok && r != nil && !r.Truncated {
+			r.Next = "read " + r.Path + ". Do not read it again. Next step is omnicoder_heal or omnicoder_patch {path, old, new}."
+		}
+	}
+	return result
 }
 
 // capOutboundResult shortens tool payloads before they are appended to an
@@ -185,12 +354,17 @@ func capOutboundResult(name string, result any) any {
 		}
 	case "omnicoder_patch":
 		if m, ok := result.(map[string]any); ok {
-			if _, exists := m["next"]; !exists {
-				path, _ := m["path"].(string)
-				if path == "" {
-					m["next"] = "patched. Do not re-read the file. Next: omnicoder_heal or git_commit."
+			delete(m, "raw_diff")
+			delete(m, "backup_path")
+			if _, hasNext := m["next"]; !hasNext {
+				if applied, _ := m["applied"].(bool); applied {
+					nextMsg := "Run your test/build command via omnicoder_run or omnicoder_heal to verify."
+					if warn, _ := m["syntax_warning"].(string); warn != "" {
+						nextMsg += " (WARNING: " + warn + ")"
+					}
+					m["next"] = nextMsg
 				} else {
-					m["next"] = "patched " + path + ". Do not re-read the file. Next: omnicoder_heal or git_commit."
+					m["next"] = "Read the target file lines around the edit site and retry with exact context."
 				}
 			}
 		}
