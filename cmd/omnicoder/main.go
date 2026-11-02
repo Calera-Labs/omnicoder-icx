@@ -4342,13 +4342,15 @@ func executeMCP(ctx context.Context, cfg *GlobalConfig, args []string) error {
 		cfg.APIKey = ""
 		cfg.Offline = true
 	} else {
-		if cfg.Model == "" && det.Model != "" {
+		if (cfg.Model == "" || cfg.Model == DefaultModel) && det.Model != "" {
 			cfg.Model = det.Model
 		}
 		if cfg.BaseURL == "" && det.BaseURL != "" {
 			cfg.BaseURL = det.BaseURL
 		}
-		if cfg.APIKey == "" && det.APIKey != "" {
+		if (cfg.APIKey == "" || cfg.APIKey == llm.DefaultFallbackAPIKey) && det.APIKey != "" {
+			cfg.APIKey = det.APIKey
+		} else if !llm.IsGeminiModel(cfg.Model) && llm.IsGeminiKey(cfg.APIKey) && cfg.BaseURL == "" {
 			cfg.APIKey = det.APIKey
 		}
 		if det.IsOffline {
@@ -4418,7 +4420,7 @@ func executeMCP(ctx context.Context, cfg *GlobalConfig, args []string) error {
 		if wireGate != nil {
 			return wireGate
 		}
-		if cfg.Offline {
+		if cfg.Offline || (!llm.IsGeminiModel(cfg.Model) && cfg.BaseURL == "" && cfg.APIKey == "") {
 			wireGate = llm.NewMockDecisionGate()
 			return wireGate
 		}

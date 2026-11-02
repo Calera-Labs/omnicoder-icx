@@ -252,3 +252,42 @@ func TestWriteFile_DuplicateMainWarning_And_TraceTokenBudget(t *testing.T) {
 		t.Fatalf("api_key must be redacted: %#v", sanitized)
 	}
 }
+
+func TestResolveEffectiveWorkspace_RelativeSubprojectAndDoctorWorkdir(t *testing.T) {
+	umbrella := t.TempDir()
+	subProj := filepath.Join(umbrella, "P-08")
+	if err := os.MkdirAll(subProj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subProj, "go.mod"), []byte("module example.com/p08\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subProj, "version.go"), []byte("package p08\n\nconst Version = \"2.4.0\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := mcp.NewServer(umbrella)
+	defer srv.Close()
+	mcp.RegisterOmniCoderTools(srv, nil)
+	srv.SetClientInfo("Cline", "qwen/qwen3.8-27b")
+
+	// 1. Relative subproject via workdir alias on omnicoder_doctor
+	res, err := srv.Dispatch(context.Background(), "omnicoder_doctor", map[string]any{
+		"workdir":         "P-08",
+		"include_git":     false,
+		"extract_version": true,
+	})
+	if err != nil {
+		t.Fatalf("omnicoder_doctor with relative workdir failed: %v", err)
+	}
+	doc, ok := res.(*devops.DoctorResult)
+	if !ok {
+		t.Fatalf("expected *devops.DoctorResult, got %T", res)
+	}
+	if doc.Workspace != subProj {
+		t.Fatalf("expected doctor workspace %s, got %s", subProj, doc.Workspace)
+	}
+	if doc.Version != "2.4.0" {
+		t.Fatalf("expected version 2.4.0, got %q", doc.Version)
+	}
+}

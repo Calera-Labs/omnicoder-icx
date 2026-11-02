@@ -46,8 +46,13 @@ func NormalizeGoSource(code string) string {
 	}
 
 	// 1. Fix missing space in package declaration (e.g. packagecanonical -> package canonical)
-	rePkg := regexp.MustCompile(`(?m)^(\s*package)([a-zA-Z0-9_]+)`)
-	code = rePkg.ReplaceAllString(code, "$1 $2")
+	// Guard: only apply when the package clause does not already parse and the line is a standalone package clause,
+	// so local variables like `packageJSON := ...` or `packageName = ...` are never corrupted.
+	fsetPkg := token.NewFileSet()
+	if _, pkgErr := parser.ParseFile(fsetPkg, "preflight.go", code, parser.PackageClauseOnly); pkgErr != nil {
+		rePkg := regexp.MustCompile(`(?m)^(\s*package)([a-zA-Z0-9_]+)(\s*(?://.*)?)$`)
+		code = rePkg.ReplaceAllString(code, "$1 $2$3")
+	}
 
 	// 2. Fix non-std crypto/fnv slip
 	if strings.Contains(code, `"crypto/fnv"`) {

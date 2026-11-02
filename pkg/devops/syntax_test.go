@@ -579,6 +579,22 @@ def compute(a, b=2):
 	}
 }
 
+func TestNormalizeGoSource_PreservesPackagePrefixVariables(t *testing.T) {
+	src := `package devops
+
+import "path/filepath"
+
+func checkNode(ws string) string {
+	packageJSON := filepath.Join(ws, "package.json")
+	return packageJSON
+}
+`
+	if err := ValidateGoSource(src); err != nil {
+		t.Fatalf("ValidateGoSource should not corrupt packageJSON variable: %v", err)
+	}
+}
+
+
 
 
 

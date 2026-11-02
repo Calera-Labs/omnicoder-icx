@@ -417,13 +417,7 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 			_ = s.SetWorkspace(wsArg)
 		}
 
-		currentWS := s.WorkspaceDir()
-		if IsIDEOsOrSystemDir(currentWS) {
-			if ideWS := DiscoverIDEActiveWorkspace(); ideWS != "" {
-				_ = s.SetWorkspace(ideWS)
-				currentWS = s.WorkspaceDir()
-			}
-		}
+		currentWS := s.ResolveEffectiveWorkspace(args, "")
 
 		defaultShell := "sh / bash"
 		lineEnding := "LF"
@@ -508,7 +502,11 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 			maxFiles = int(mf)
 		}
 
-		currentWS := s.ResolveEffectiveWorkspace(args, "")
+		var focusHint string
+		if len(focusFiles) > 0 {
+			focusHint = focusFiles[0]
+		}
+		currentWS := s.ResolveEffectiveWorkspace(args, focusHint)
 
 		start := time.Now()
 		res, err := devops.SynthesizeRepoMap(devops.RepoMapRequest{
@@ -592,17 +590,11 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 			}
 		}
 
-		currentWS := s.WorkspaceDir()
-		if wsArg, ok := args["workspace"].(string); ok && strings.TrimSpace(wsArg) != "" {
-			if fi, err := os.Stat(wsArg); err == nil && fi.IsDir() && !IsIDEOsOrSystemDir(wsArg) {
-				currentWS = wsArg
-			}
-		} else if IsIDEOsOrSystemDir(currentWS) {
-			if ideWS := DiscoverIDEActiveWorkspace(); ideWS != "" {
-				_ = s.SetWorkspace(ideWS)
-				currentWS = s.WorkspaceDir()
-			}
+		var hintPath string
+		if len(hintFiles) > 0 {
+			hintPath = hintFiles[0]
 		}
+		currentWS := s.ResolveEffectiveWorkspace(args, hintPath)
 
 		tokens := strings.Fields(query)
 		results, err := devops.SearchCodebase(devops.CodeSearchOptions{
@@ -1163,13 +1155,7 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 			dryRun = dr
 		}
 
-		currentWS := s.WorkspaceDir()
-		if IsIDEOsOrSystemDir(currentWS) {
-			if ideWS := DiscoverIDEActiveWorkspace(); ideWS != "" {
-				_ = s.SetWorkspace(ideWS)
-				currentWS = s.WorkspaceDir()
-			}
-		}
+		currentWS := s.ResolveEffectiveWorkspace(args, targetFile)
 
 		// Ingest polyglot AST files into lattice
 		_ = filepath.WalkDir(currentWS, func(path string, d os.DirEntry, err error) error {
@@ -1418,12 +1404,9 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 		workdir, _ := args["workdir"].(string)
 		isAsync, _ := args["async"].(bool)
 
-		currentWS := s.WorkspaceDir()
-		if IsIDEOsOrSystemDir(currentWS) {
-			if ideWS := DiscoverIDEActiveWorkspace(); ideWS != "" {
-				_ = s.SetWorkspace(ideWS)
-				currentWS = s.WorkspaceDir()
-			}
+		currentWS := s.ResolveEffectiveWorkspace(args, workdir)
+		if filepath.IsAbs(workdir) && strings.EqualFold(filepath.Clean(workdir), filepath.Clean(currentWS)) {
+			workdir = ""
 		}
 
 		if isAsync {
@@ -1702,12 +1685,7 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 			jsonMode = true
 		}
 
-		currentWS := s.WorkspaceDir()
-		if IsIDEOsOrSystemDir(currentWS) {
-			if ideWS := DiscoverIDEActiveWorkspace(); ideWS != "" {
-				_ = s.SetWorkspace(ideWS)
-			}
-		}
+		_ = s.ResolveEffectiveWorkspace(args, targetFile)
 
 		if sCtx.ScopedTaskRunner != nil {
 			return sCtx.ScopedTaskRunner(ctx, ScopedRunOptions{
@@ -2077,9 +2055,8 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 			},
 		},
 	}, func(ctx context.Context, args map[string]any) (any, error) {
-		currentWS := s.ResolveEffectiveWorkspace(args, "")
-
 		entrypoint, _ := args["entrypoint"].(string)
+		currentWS := s.ResolveEffectiveWorkspace(args, entrypoint)
 		port := 8099
 		if p, ok := args["port"].(float64); ok && p > 0 {
 			port = int(p)
@@ -2169,13 +2146,7 @@ func (s *Server) handleOmniCoderSwarm(ctx context.Context, params map[string]any
 		return nil, fmt.Errorf("missing required parameter: plan_path")
 	}
 
-	currentWS := s.WorkspaceDir()
-	if IsIDEOsOrSystemDir(currentWS) {
-		if ideWS := DiscoverIDEActiveWorkspace(); ideWS != "" {
-			_ = s.SetWorkspace(ideWS)
-			currentWS = s.WorkspaceDir()
-		}
-	}
+	currentWS := s.ResolveEffectiveWorkspace(params, planPath)
 
 	maxWorkers := 4
 	if mw, ok := params["max_workers"].(float64); ok && mw > 0 {

@@ -100,3 +100,43 @@ func TestRunDoctor_RichDiagnosticBadges(t *testing.T) {
 	}
 }
 
+func TestRunDoctor_UmbrellaWorkspaceSubprojectResolution(t *testing.T) {
+	umbrella := t.TempDir()
+	subProj := filepath.Join(umbrella, "P-08")
+	if err := os.MkdirAll(filepath.Join(subProj, "dist"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subProj, "go.mod"), []byte("module example.com/p08\n\ngo 1.22\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subProj, "version.go"), []byte("package p08\n\nconst Version = \"1.8.0\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subProj, "README.md"), []byte("# P-08\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subProj, "dist", "app.bin"), make([]byte, 10240), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := RunDoctor(context.Background(), DoctorOptions{
+		WorkspaceDir:   umbrella,
+		CheckGates:     false,
+		CheckArtifacts: []string{"README.md", "P-08/README.md"},
+		ExtractVersion: true,
+	})
+	if err != nil {
+		t.Fatalf("RunDoctor on umbrella failed: %v", err)
+	}
+	if res.Workspace != subProj {
+		t.Errorf("expected resolved workspace %s, got %s", subProj, res.Workspace)
+	}
+	if res.Version != "1.8.0" {
+		t.Errorf("expected version 1.8.0 from child project, got %q", res.Version)
+	}
+	if !res.Artifacts["README.md"] || !res.Artifacts["P-08/README.md"] {
+		t.Errorf("expected both relative and prefixed artifacts to resolve, got %+v", res.Artifacts)
+	}
+}
+
+

@@ -73,14 +73,96 @@ var (
 	tomlVersionRegex    = regexp.MustCompile(`(?m)^version\s*=\s*["']([^"']+)["']`)
 )
 
+// resolveDoctorProjectDir returns ws if it directly contains project markers, or if ws is an
+// umbrella folder (e.g. a parent folder holding P-01..P-08), resolves the active child project.
+func resolveDoctorProjectDir(ws string, artifacts []string) string {
+	rootMarkers := []string{
+		".git", "go.mod", "package.json", filepath.Join("frontend", "package.json"),
+		"pyproject.toml", "Cargo.toml", "CMakeLists.txt", "Makefile", "requirements.txt",
+		"internal", "cmd", "pkg", "src", "dist", "build",
+	}
+	for _, m := range rootMarkers {
+		if _, err := os.Stat(filepath.Join(ws, m)); err == nil {
+			return ws
+		}
+	}
+
+	childProjectMarkers := []string{"go.mod", "package.json", "pyproject.toml", "Cargo.toml", "requirements.txt", ".git"}
+	hasChildMarker := func(dir string) bool {
+		for _, m := range childProjectMarkers {
+			if _, err := os.Stat(filepath.Join(dir, m)); err == nil {
+				return true
+			}
+		}
+		return false
+	}
+
+	// 1. Check if CheckArtifacts explicitly points into a child project directory
+	for _, art := range artifacts {
+		cleanArt := filepath.ToSlash(strings.TrimSpace(art))
+		if idx := strings.IndexByte(cleanArt, '/'); idx > 0 {
+			sub := cleanArt[:idx]
+			cand := filepath.Join(ws, sub)
+			if fi, err := os.Stat(cand); err == nil && fi.IsDir() && hasChildMarker(cand) {
+				return cand
+			}
+		}
+	}
+
+	// 2. Scan direct child directories for the most recently modified subproject
+	entries, err := os.ReadDir(ws)
+	if err != nil {
+		return ws
+	}
+	var bestDir string
+	var bestTime time.Time
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+			continue
+		}
+		childPath := filepath.Join(ws, name)
+		if !hasChildMarker(childPath) {
+			continue
+		}
+		var latest time.Time
+		if fi, sErr := entry.Info(); sErr == nil {
+			latest = fi.ModTime()
+		}
+		if subEntries, rErr := os.ReadDir(childPath); rErr == nil {
+			for _, se := range subEntries {
+				if strings.HasPrefix(se.Name(), ".") {
+					continue
+				}
+				if sfi, sfErr := se.Info(); sfErr == nil && sfi.ModTime().After(latest) {
+					latest = sfi.ModTime()
+				}
+			}
+		}
+		if bestDir == "" || latest.After(bestTime) {
+			bestDir = childPath
+			bestTime = latest
+		}
+	}
+	if bestDir != "" {
+		return bestDir
+	}
+	return ws
+}
+
 // RunDoctor performs a comprehensive, deterministic health audit of the workspace.
 func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
 	if opts.WorkspaceDir == "" {
 		return nil, fmt.Errorf("workspace_dir is required")
 	}
 
+	projectWS := resolveDoctorProjectDir(opts.WorkspaceDir, opts.CheckArtifacts)
+
 	res := &DoctorResult{
-		Workspace: opts.WorkspaceDir,
+		Workspace: projectWS,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Artifacts: make(map[string]bool),
 	}
@@ -93,21 +175,24 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
 		}
 		target := filepath.Join(opts.WorkspaceDir, filepath.FromSlash(art))
 		_, err := os.Stat(target)
+		if err != nil && projectWS != opts.WorkspaceDir {
+			_, err = os.Stat(filepath.Join(projectWS, filepath.FromSlash(art)))
+		}
 		res.Artifacts[art] = (err == nil)
 	}
 
 	// 2. Git state
 	if opts.IncludeGit {
-		inspectGit(ctx, opts.WorkspaceDir, &res.Git)
+		inspectGit(ctx, projectWS, &res.Git)
 	}
 
 	// 3. Version extraction
 	if opts.ExtractVersion {
-		res.Version = detectProjectVersion(opts.WorkspaceDir)
+		res.Version = detectProjectVersion(projectWS)
 	}
 
 	// 4. Bundle / Artifact Sizing
-	res.BundleSize = MeasureBundleSize(opts.WorkspaceDir, opts.BundlePaths)
+	res.BundleSize = MeasureBundleSize(projectWS, opts.BundlePaths)
 
 	// 5. Automated Gates
 	if opts.CheckGates {
@@ -118,14 +203,14 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
 		gateCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 		defer cancel()
 
-		runGates(gateCtx, opts.WorkspaceDir, &res.Gates, res, opts)
+		runGates(gateCtx, projectWS, &res.Gates, res, opts)
 	}
 
 	// 5b. Standalone Lint Verification if gates were skipped
 	if opts.CheckLint && res.LintStatus == "" {
-		if _, err := os.Stat(filepath.Join(opts.WorkspaceDir, "go.mod")); err == nil {
+		if _, err := os.Stat(filepath.Join(projectWS, "go.mod")); err == nil {
 			vCmd := exec.CommandContext(ctx, "go", "vet", "./...")
-			vCmd.Dir = opts.WorkspaceDir
+			vCmd.Dir = projectWS
 			if err := vCmd.Run(); err == nil {
 				res.LintStatus = "Zero Lint Errors"
 			} else {

@@ -151,8 +151,17 @@ func (h *HermeticLocalSandbox) RunCommand(ctx context.Context, req CommandReques
 	workdir := sb.dir
 	if req.Workdir != "" && req.Workdir != "." {
 		if filepath.IsAbs(req.Workdir) {
-			if strings.HasPrefix(filepath.Clean(req.Workdir), filepath.Clean(sb.dir)) {
-				workdir = req.Workdir
+			cleanReq := filepath.Clean(req.Workdir)
+			cleanSB := filepath.Clean(sb.dir)
+			if strings.HasPrefix(strings.ToLower(cleanReq), strings.ToLower(cleanSB)) {
+				workdir = cleanReq
+			} else if sb.sourceWorkspace != "" {
+				if rel, relErr := filepath.Rel(filepath.Clean(sb.sourceWorkspace), cleanReq); relErr == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+					candidate := filepath.Join(sb.dir, rel)
+					if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+						workdir = candidate
+					}
+				}
 			}
 		} else {
 			candidate := filepath.Join(sb.dir, filepath.FromSlash(req.Workdir))

@@ -285,10 +285,26 @@ func isShellRootOrSystemDir(dir string) bool {
 // honoring per-call workspace overrides (args["workspace"], args["workspace_dir"], etc.),
 // recovering from IDE/OS system directories, and resolving sibling project paths under a shared parent workspace.
 func (s *Server) ResolveEffectiveWorkspace(args map[string]any, pathHint string) string {
+	ws := s.WorkspaceDir()
+	s.workMu.RLock()
+	rootWS := s.rootWorkspaceDir
+	s.workMu.RUnlock()
+
 	if args != nil {
 		for _, k := range []string{"workspace", "workspace_dir", "workspace_root", "workspace_path", "WorkspaceDir", "workspaceDir", "cwd"} {
 			if v, ok := args[k].(string); ok && strings.TrimSpace(v) != "" {
 				cand := filepath.Clean(strings.TrimSpace(v))
+				if !filepath.IsAbs(cand) {
+					for _, base := range []string{ws, rootWS} {
+						if base == "" {
+							continue
+						}
+						joined := filepath.Clean(filepath.Join(base, cand))
+						if fi, sErr := os.Stat(joined); sErr == nil && fi.IsDir() && !IsIDEOsOrSystemDir(joined) {
+							return joined
+						}
+					}
+				}
 				if abs, err := filepath.Abs(cand); err == nil {
 					if fi, sErr := os.Stat(abs); sErr == nil && fi.IsDir() && !IsIDEOsOrSystemDir(abs) {
 						return abs
@@ -298,7 +314,6 @@ func (s *Server) ResolveEffectiveWorkspace(args map[string]any, pathHint string)
 		}
 	}
 
-	ws := s.WorkspaceDir()
 	if IsIDEOsOrSystemDir(ws) {
 		if pathHint != "" && filepath.IsAbs(pathHint) {
 			targetDir := pathHint
@@ -320,10 +335,6 @@ func (s *Server) ResolveEffectiveWorkspace(args map[string]any, pathHint string)
 			return s.WorkspaceDir()
 		}
 	}
-
-	s.workMu.RLock()
-	rootWS := s.rootWorkspaceDir
-	s.workMu.RUnlock()
 
 	// If pathHint is a clean relative path that does not exist inside current ws (e.g. after ws was narrowed
 	// to a sub-package like cmd/server), check ancestor workspaces up to rootWS.
@@ -1308,6 +1319,12 @@ func normalizeToolArguments(toolName string, args map[string]any) {
 		if toolName == "git_diff" {
 			if v := firstNonEmptyStringArg(args, "path", "file", "file_path", "filepath", "filePath", "FilePath"); v != "" {
 				args["path"] = v
+			}
+		}
+	case "omnicoder_doctor":
+		if args["workspace"] == nil {
+			if v := firstNonEmptyStringArg(args, "workdir", "path", "dir", "directory", "folder", "repo_path", "project_dir"); v != "" {
+				args["workspace"] = v
 			}
 		}
 	}
