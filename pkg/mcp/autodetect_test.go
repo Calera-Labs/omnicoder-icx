@@ -89,6 +89,50 @@ func TestAutoDetect_WorkspaceBoundaries(t *testing.T) {
 	if cfgIDE.WorkspaceDir != realProject {
 		t.Errorf("expected IDE path %s to be rejected in favor of %s, got %s", ideFakeDir, realProject, cfgIDE.WorkspaceDir)
 	}
+
+	// Test case F: Remote IDE Server (.vscode-server) & product.json+node.exe Rejection
+	vscodeServerDir := filepath.Join(tempRoot, ".vscode-server", "cli", "servers", "Stable-2c33b50b16c472efe58357d1d2a8a5414bc23fbf", "server")
+	_ = os.MkdirAll(vscodeServerDir, 0755)
+	_ = os.WriteFile(filepath.Join(vscodeServerDir, "package.json"), []byte(`{"name":"code-oss-dev"}`), 0644)
+	_ = os.WriteFile(filepath.Join(vscodeServerDir, "product.json"), []byte(`{"nameShort":"Code - OSS"}`), 0644)
+	_ = os.WriteFile(filepath.Join(vscodeServerDir, "node.exe"), []byte("fake node"), 0755)
+
+	if !mcp.IsIDEOsOrSystemDir(vscodeServerDir) {
+		t.Errorf("expected IsIDEOsOrSystemDir(%s) to be true for .vscode-server", vscodeServerDir)
+	}
+	cfgVSCodeSrv := mcp.AutoDetectEnvironment(vscodeServerDir)
+	if cfgVSCodeSrv.WorkspaceDir != realProject {
+		t.Errorf("expected .vscode-server path %s to be rejected in favor of %s, got %s", vscodeServerDir, realProject, cfgVSCodeSrv.WorkspaceDir)
+	}
+
+	// Test case G: Electron distribution dir with product.json + node binary (even without .vscode-server path)
+	electronDistDir := filepath.Join(tempRoot, "custom-ide-dist")
+	_ = os.MkdirAll(electronDistDir, 0755)
+	_ = os.WriteFile(filepath.Join(electronDistDir, "product.json"), []byte(`{}`), 0644)
+	_ = os.WriteFile(filepath.Join(electronDistDir, "node.exe"), []byte("fake node"), 0755)
+	if !mcp.IsIDEOsOrSystemDir(electronDistDir) {
+		t.Errorf("expected IsIDEOsOrSystemDir(%s) to be true for product.json+node.exe", electronDistDir)
+	}
+
+	// Test case H: Cline 4.x Session Workspace Discovery (~/.cline/data/sessions/<id>/<id>.json)
+	_ = os.Unsetenv("OMNICODER_WORKSPACE")
+	fakeHome := filepath.Join(tempRoot, "fakehome")
+	clineSessDir := filepath.Join(fakeHome, ".cline", "data", "sessions", "1793583038949_qver4")
+	_ = os.MkdirAll(clineSessDir, 0755)
+	sessJSON, _ := json.Marshal(map[string]any{
+		"session_id":     "1793583038949_qver4",
+		"workspace_root": realProject,
+		"cwd":            realProject,
+	})
+	_ = os.WriteFile(filepath.Join(clineSessDir, "1793583038949_qver4.json"), sessJSON, 0644)
+	t.Setenv("USERPROFILE", fakeHome)
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("APPDATA", filepath.Join(fakeHome, "AppData", "Roaming"))
+
+	discoveredWS := mcp.DiscoverIDEActiveWorkspace()
+	if discoveredWS != realProject {
+		t.Errorf("expected DiscoverIDEActiveWorkspace to find %s from Cline session, got %s", realProject, discoveredWS)
+	}
 }
 
 // ----------------------------------------------------------------------------

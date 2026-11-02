@@ -155,15 +155,42 @@ func IsIDEOsOrSystemDir(dir string) bool {
 		return true
 	}
 
-	// Windsurf IDE install directory
-	if strings.Contains(cleanLower, `programs\windsurf`) || strings.Contains(cleanLower, `programs/windsurf`) {
+	// Windsurf & Antigravity IDE install directories
+	if strings.Contains(cleanLower, `programs\windsurf`) || strings.Contains(cleanLower, `programs/windsurf`) ||
+		strings.Contains(cleanLower, `programs\antigravity`) || strings.Contains(cleanLower, `programs/antigravity`) {
 		return true
 	}
 
-	// Check if directory contains Code.exe, Cursor.exe, or Windsurf.exe directly
-	for _, exe := range []string{"Code.exe", "code.exe", "Cursor.exe", "cursor.exe", "Windsurf.exe"} {
+	// Remote IDE server & internal agent runtime state directories
+	// (e.g. ~/.vscode-server/cli/servers/Stable-.../server, ~/.cursor-server, ~/.cline)
+	slashLower := filepath.ToSlash(cleanLower)
+	for _, seg := range []string{
+		"/.vscode-server/",
+		"/.vscode-insiders/",
+		"/.vscode-remote/",
+		"/.cursor-server/",
+		"/.windsurf-server/",
+		"/.antigravity-server/",
+		"/.cline/",
+	} {
+		if strings.Contains(slashLower, seg) || strings.HasSuffix(slashLower, strings.TrimSuffix(seg, "/")) {
+			return true
+		}
+	}
+
+	// Check if directory contains Code.exe, Cursor.exe, Windsurf.exe, or Antigravity.exe directly
+	for _, exe := range []string{"Code.exe", "code.exe", "Cursor.exe", "cursor.exe", "Windsurf.exe", "Antigravity.exe", "antigravity.exe", "agy.exe"} {
 		if fi, err := os.Stat(filepath.Join(clean, exe)); err == nil && !fi.IsDir() {
 			return true
+		}
+	}
+
+	// Check if directory is a VS Code Server / Electron IDE distribution root (contains product.json + node binary)
+	if prodFi, err := os.Stat(filepath.Join(clean, "product.json")); err == nil && !prodFi.IsDir() {
+		for _, nodeBin := range []string{"node.exe", "node"} {
+			if nFi, nErr := os.Stat(filepath.Join(clean, nodeBin)); nErr == nil && !nFi.IsDir() {
+				return true
+			}
 		}
 	}
 
@@ -193,7 +220,7 @@ func DiscoverIDEActiveWorkspace() string {
 		}
 	}
 
-	// 2. Search VS Code / Cursor / Windsurf workspaceStorage directories
+	// 2. Search VS Code / Cursor / Windsurf / Antigravity workspaceStorage directories
 	var storageRoots []string
 
 	appData := os.Getenv("APPDATA")
@@ -203,6 +230,8 @@ func DiscoverIDEActiveWorkspace() string {
 			filepath.Join(appData, "Code - Insiders", "User", "workspaceStorage"),
 			filepath.Join(appData, "Cursor", "User", "workspaceStorage"),
 			filepath.Join(appData, "Windsurf", "User", "workspaceStorage"),
+			filepath.Join(appData, "Antigravity", "User", "workspaceStorage"),
+			filepath.Join(appData, "Antigravity IDE", "User", "workspaceStorage"),
 		)
 	}
 
@@ -213,12 +242,14 @@ func DiscoverIDEActiveWorkspace() string {
 			filepath.Join(homeDir, "Library", "Application Support", "Code", "User", "workspaceStorage"),
 			filepath.Join(homeDir, "Library", "Application Support", "Cursor", "User", "workspaceStorage"),
 			filepath.Join(homeDir, "Library", "Application Support", "Windsurf", "User", "workspaceStorage"),
+			filepath.Join(homeDir, "Library", "Application Support", "Antigravity", "User", "workspaceStorage"),
 		)
 		// Linux
 		storageRoots = append(storageRoots,
 			filepath.Join(homeDir, ".config", "Code", "User", "workspaceStorage"),
 			filepath.Join(homeDir, ".config", "Cursor", "User", "workspaceStorage"),
 			filepath.Join(homeDir, ".config", "Windsurf", "User", "workspaceStorage"),
+			filepath.Join(homeDir, ".config", "Antigravity", "User", "workspaceStorage"),
 		)
 	}
 
@@ -227,6 +258,60 @@ func DiscoverIDEActiveWorkspace() string {
 		modTime time.Time
 	}
 	var candidates []candidateFolder
+
+	// 2a. Inspect Cline 4.x active session files (~/.cline/data/sessions/<id>/<id>.json)
+	var clineHomes []string
+	if homeDir != "" {
+		clineHomes = append(clineHomes, homeDir)
+	}
+	for _, hEnv := range []string{"USERPROFILE", "HOME"} {
+		if hVal := strings.TrimSpace(os.Getenv(hEnv)); hVal != "" && hVal != homeDir {
+			clineHomes = append(clineHomes, hVal)
+		}
+	}
+	for _, cHome := range clineHomes {
+		sessionsRoot := filepath.Join(cHome, ".cline", "data", "sessions")
+		sEntries, err := os.ReadDir(sessionsRoot)
+		if err != nil {
+			continue
+		}
+		for _, sEntry := range sEntries {
+			if !sEntry.IsDir() {
+				continue
+			}
+			sessID := sEntry.Name()
+			sessFile := filepath.Join(sessionsRoot, sessID, sessID+".json")
+			fi, sErr := os.Stat(sessFile)
+			if sErr != nil || fi.IsDir() {
+				continue
+			}
+			raw, rErr := os.ReadFile(sessFile)
+			if rErr != nil {
+				continue
+			}
+			var sess struct {
+				WorkspaceRoot string `json:"workspace_root"`
+				Cwd           string `json:"cwd"`
+			}
+			if json.Unmarshal(raw, &sess) != nil {
+				continue
+			}
+			for _, p := range []string{sess.WorkspaceRoot, sess.Cwd} {
+				p = strings.TrimSpace(p)
+				if p == "" {
+					continue
+				}
+				cleanP := filepath.Clean(p)
+				if pFi, pErr := os.Stat(cleanP); pErr == nil && pFi.IsDir() && !IsIDEOsOrSystemDir(cleanP) {
+					candidates = append(candidates, candidateFolder{
+						path:    cleanP,
+						modTime: fi.ModTime(),
+					})
+					break
+				}
+			}
+		}
+	}
 
 	for _, sRoot := range storageRoots {
 		entries, err := os.ReadDir(sRoot)
