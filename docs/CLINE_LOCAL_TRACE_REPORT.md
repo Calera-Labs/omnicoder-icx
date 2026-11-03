@@ -123,3 +123,9 @@ Ordered by what the traces show, not by the architecture paper.
 9. **Give Cline a card-sized tool result.** `omnicoder_patch`, `omnicoder_heal`, and `omnicoder_doctor` already return a few hundred bytes, and that part is healthy. Extend the same budget to map and search, and put the next action in the first line (`patched docs/paper.md`, `tests passed`, `commit with git_commit`). A local model will follow the first line and skip the rest.
 
 The tools are fast enough for local use. Patch, status, search, and commit on the Cline session were milliseconds to a couple of seconds, and the docs task did land, including a real commit. The cost is the outer transcript: unnamed traces, a doctor result that invites a retry, a commit tool the model cannot find by the name it is given, and file payloads large enough to stall a 27B model for the rest of the hour.
+
+---
+
+## Follow-Up (2026-11-02): `2028 Projects` Audit & 7 Forensic Guardrails
+
+See [RECENT_UPGRADES_AND_PERFORMANCE_BRIEF.md](./RECENT_UPGRADES_AND_PERFORMANCE_BRIEF.md) for the follow-up audit across `P-01` through `P-09` and the 7 additional guardrails shipped in commit `b54e1fd` (LLM path sanitization, `os.TempDir()` live-verify binary isolation, 15-line `Closest context` snippets on fuzzy mismatch, deleted-test commit protection, full-file overwrite steering, umbrella git subproject fallback, and automatic `.clinerules` seeding).
