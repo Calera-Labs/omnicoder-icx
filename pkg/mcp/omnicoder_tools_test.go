@@ -1516,5 +1516,123 @@ func TestOmniCoderTools_DownstreamAgentErgonomicsAndAliases(t *testing.T) {
 	}
 }
 
+func TestOmniCoderTools_PreventAccidentalTruncationAndOverwrite(t *testing.T) {
+	tmpDir := t.TempDir()
+	srv := mcp.NewServer(tmpDir)
+	mcp.RegisterOmniCoderTools(srv, nil)
+	ctx := context.Background()
+
+	// 1. Python file with multiple functions
+	pyContent := `import os
+
+def calculate_tax(subtotal):
+    rate = 0.08
+    return subtotal * rate
+
+def calculate_shipping(weight):
+    if weight > 10:
+        return 15.00
+    return 5.00
+
+def format_receipt(items):
+    return "Receipt"
+`
+	pyFile := filepath.Join(tmpDir, "calculator.py")
+	if err := os.WriteFile(pyFile, []byte(pyContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Test A: Calling omnicoder_patch with {path, old, content} (where content is the new code)
+	// Must NOT overwrite the file, but perform surgical patch of calculate_tax
+	_, err := srv.Dispatch(ctx, "omnicoder_patch", map[string]any{
+		"path":    "calculator.py",
+		"old":     "rate = 0.08\n    return subtotal * rate",
+		"content": "rate = 0.10\n    return subtotal * rate",
+	})
+	if err != nil {
+		t.Fatalf("omnicoder_patch with old and content failed: %v", err)
+	}
+	raw, _ := os.ReadFile(pyFile)
+	if !strings.Contains(string(raw), "rate = 0.10") || !strings.Contains(string(raw), "def calculate_shipping") {
+		t.Fatalf("file was improperly overwritten by old/content patch:\n%s", string(raw))
+	}
+
+	// Test B: Calling omnicoder_patch with {path, target, replacement} (Antigravity parameters)
+	// Must NOT confuse target with a path, and must perform surgical patch
+	_, err = srv.Dispatch(ctx, "omnicoder_patch", map[string]any{
+		"path":        "calculator.py",
+		"target":      "if weight > 10:\n        return 15.00",
+		"replacement": "if weight > 20:\n        return 25.00",
+	})
+	if err != nil {
+		t.Fatalf("omnicoder_patch with target and replacement failed: %v", err)
+	}
+	raw, _ = os.ReadFile(pyFile)
+	if !strings.Contains(string(raw), "weight > 20") || !strings.Contains(string(raw), "def format_receipt") {
+		t.Fatalf("file was improperly overwritten by target/replacement patch:\n%s", string(raw))
+	}
+
+	// Test C: Calling omnicoder_patch with {path, new} without old (and no line range)
+	// Must be REJECTED to prevent wiping the file
+	_, err = srv.Dispatch(ctx, "omnicoder_patch", map[string]any{
+		"path": "calculator.py",
+		"new":  "def orphan():\n    pass\n",
+	})
+	if err == nil {
+		t.Fatalf("expected omnicoder_patch with new but no old to be rejected, but it succeeded!")
+	}
+
+	// Test D: Calling omnicoder_patch with a raw single-function update for Python
+	// Should auto-splice the declaration into calculator.py, preserving all other functions
+	newTaxFunc := `def calculate_tax(subtotal):
+    # Updated rate for 2027
+    return subtotal * 0.12
+`
+	res, err := srv.Dispatch(ctx, "omnicoder_patch", map[string]any{
+		"path":    "calculator.py",
+		"content": newTaxFunc,
+	})
+	if err != nil {
+		t.Fatalf("expected auto-splice on Python single function update to succeed: %v", err)
+	}
+	resMap := res.(map[string]any)
+	if resMap["mode"] != "AUTO_SPLICED" {
+		t.Errorf("expected mode AUTO_SPLICED, got %v", resMap["mode"])
+	}
+	raw, _ = os.ReadFile(pyFile)
+	if !strings.Contains(string(raw), "Updated rate for 2027") {
+		t.Errorf("expected updated calculate_tax in calculator.py")
+	}
+	if !strings.Contains(string(raw), "def calculate_shipping") || !strings.Contains(string(raw), "def format_receipt") {
+		t.Fatalf("file was wiped instead of spliced:\n%s", string(raw))
+	}
+
+	// Test E: write_file accidental substring section overwrite guard on substantive file
+	substantive := strings.Repeat("# Substantive header configuration section\n", 12) + "API_KEY = 'secret-key-12345'\n" + strings.Repeat("# Footer notes\n", 10)
+	configPath := filepath.Join(tmpDir, "config.py")
+	_ = os.WriteFile(configPath, []byte(substantive), 0644)
+
+	_, err = srv.Dispatch(ctx, "write_file", map[string]any{
+		"path":    "config.py",
+		"content": "API_KEY = 'secret-key-12345'\n",
+	})
+	if err == nil {
+		t.Fatalf("expected write_file with accidental substring section to be rejected!")
+	}
+	if !strings.Contains(err.Error(), "code preservation guard") {
+		t.Errorf("expected error message to mention code preservation guard, got: %v", err)
+	}
+
+	// Test F: write_file with force=true must succeed
+	_, err = srv.Dispatch(ctx, "write_file", map[string]any{
+		"path":    "config.py",
+		"content": "API_KEY = 'secret-key-12345'\n",
+		"force":   true,
+	})
+	if err != nil {
+		t.Fatalf("expected write_file with force=true to succeed: %v", err)
+	}
+}
+
 
 

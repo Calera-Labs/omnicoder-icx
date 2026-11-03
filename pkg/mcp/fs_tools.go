@@ -199,7 +199,7 @@ func NewReadFileTool(workspaceDir string) (ToolDefinition, ToolHandler) {
 func NewWriteFileTool(workspaceDir string) (ToolDefinition, ToolHandler) {
 	return ToolDefinition{
 		Name:        "write_file",
-		Description: "Writes content to a file in the workspace with automatic parent directory creation and safe atomic sync.",
+		Description: "Writes full file content to a file in the workspace with automatic parent directory creation and safe atomic sync. CAUTION: Overwrites the ENTIRE file. To edit or replace a section of an existing file, use 'omnicoder_patch' with {path, old, new} instead.",
 		InputSchema: WriteFileSchema,
 	}, func(ctx context.Context, args map[string]any) (any, error) {
 		return HandleWriteFile(ctx, workspaceDir, args)
@@ -433,6 +433,14 @@ func HandleWriteFile(ctx context.Context, workspaceDir string, args map[string]a
 			}
 			if strings.Contains(rawStr, "\r\n") && !strings.Contains(content, "\r\n") {
 				content = strings.ReplaceAll(content, "\n", "\r\n")
+			}
+			force := getOptionalBoolArg(args, "force", false)
+			if !force && len(rawStr) > 400 && len(strings.TrimSpace(content)) > 20 && len(content) < len(rawStr)/2 {
+				normRaw := canonical.NormalizeLF(rawStr)
+				normContent := canonical.NormalizeLF(strings.TrimSpace(content))
+				if strings.Contains(normRaw, normContent) {
+					return nil, fmt.Errorf("code preservation guard: write_file rejected accidental partial section overwrite on %s (content is an existing %d-byte substring of %d-byte file). To edit a section, use omnicoder_patch {path, old, new}. To force full overwrite, pass force=true", pathStr, len(content), len(rawStr))
+				}
 			}
 		}
 	}

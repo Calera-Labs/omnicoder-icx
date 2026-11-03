@@ -126,14 +126,14 @@ var CanonicalOmniCoderTools = []CanonicalToolEntry{
 	// 3. omnicoder_patch
 	{
 		Name:        "omnicoder_patch",
-		Description: "Applies surgical edits (Aider SEARCH/REPLACE blocks, 1-indexed start_line/end_line ranges, or multi-chunk atomic refactoring). BEST FOR: Applying fuzzy diffs or multi-point edits when exact line matching is challenging. NOTE: For standard direct replacements, native IDE edit tools are also fully supported.",
+		Description: "Preferred shape: {path, old, new}. Surgically replaces the exact text in 'old' with 'new' without overwriting or disturbing the rest of the file. Keep old short (3-8 unique lines). Aider SEARCH/REPLACE blocks (<<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE), start_line/end_line ranges, and chunks are also supported.",
 		InputSchema: ToolInputSchema{
 			Type: "object",
 			Properties: map[string]PropertySchema{
 				"path":  {Type: "string", Description: "Relative path to the file to be patched."},
 				"patch": {Type: "string", Description: "Unified diff or search/replace patch content."},
 			},
-			Required: []string{"path", "patch"},
+			Required: []string{"path"},
 		},
 	},
 	// 4. omnicoder_heal
@@ -268,7 +268,7 @@ var CanonicalOmniCoderTools = []CanonicalToolEntry{
 	// 14. write_file
 	{
 		Name:        "write_file",
-		Description: "Atomically writes content to a file within the workspace boundary.",
+		Description: "Writes full file content to a file in the workspace. CAUTION: Overwrites the ENTIRE file. To edit or replace a section of an existing file, use 'omnicoder_patch' with {path, old, new} instead.",
 		InputSchema: ToolInputSchema{
 			Type: "object",
 			Properties: map[string]PropertySchema{
@@ -658,7 +658,7 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 	// 4. omnicoder_patch
 	_ = s.RegisterTool(ToolDefinition{
 		Name:        "omnicoder_patch",
-		Description: "Preferred shape: {path, old, new}. old is the exact text to replace and new is the replacement. Keep old short (3-8 unique lines). Aider SEARCH/REPLACE blocks and chunks still work. If chunks is a JSON string, it is parsed.",
+		Description: "Preferred shape: {path, old, new}. Surgically replaces the exact text in 'old' with 'new' without overwriting or disturbing the rest of the file. Keep old short (3-8 unique lines). Aider SEARCH/REPLACE blocks and chunks still work. If chunks is a JSON string, it is parsed.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -786,9 +786,22 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 		if len(synthesizedSearchBlocks) > 0 && content == "" {
 			content = strings.Join(synthesizedSearchBlocks, "\n")
 		}
+		if !strings.Contains(content, "<<<<<") || !strings.Contains(content, "=====") {
+			oldStr, hasOld := firstStringArgPresent(args, "search_block", "old_str", "old_string", "old_content", "old_text", "old", "target_content", "TargetContent", "target", "Target", "search", "find")
+			newStr, hasNew := firstStringArgPresent(args, "replace_block", "new_str", "new_string", "new_content", "new_text", "new", "replacement_content", "ReplacementContent", "replacement", "Replacement", "replace")
+			if hasOld && strings.TrimSpace(oldStr) != "" {
+				rep := ""
+				if hasNew {
+					rep = newStr
+				} else if content != "" {
+					rep = content
+				}
+				content = fmt.Sprintf("<<<<<<< SEARCH\n%s\n=======\n%s\n>>>>>>> REPLACE", oldStr, rep)
+			}
+		}
 
-		if strings.TrimSpace(relPath) == "" || (content == "" && len(parsedChunks) == 0 && startLine <= 0) {
-			return nil, fmt.Errorf("path and content (or chunks) are required")
+		if strings.TrimSpace(relPath) == "" || (content == "" && len(parsedChunks) == 0 && startLine <= 0 && strings.TrimSpace(astNode) == "") {
+			return nil, fmt.Errorf("path and content (or chunks/start_line/ast_node) are required. If you provided 'new' or 'replacement', you must also provide 'old' (the exact text to replace) or specify start_line/end_line ranges")
 		}
 
 		currentWS := s.ResolveEffectiveWorkspace(args, relPath)
@@ -869,6 +882,7 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 		isGo := strings.HasSuffix(strings.ToLower(relPath), ".go")
 		chunksLinesAdded := 0
 		chunksLinesRemoved := 0
+		spliced := false
 
 		if len(parsedChunks) > 0 {
 			// Case Multi-Chunk: Atomic multi-slice non-contiguous edits
@@ -916,26 +930,40 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 					return nil, fmt.Errorf("code preservation guard: rejected stub rewrite (%d bytes) over substantive file (%d bytes)", len(finalContent), existingSize)
 				}
 
-				// Guard B: Go file function splicing (auto-splice single function updates)
+				// Substring snippet guard: if incoming content is an exact substring of existing substantive file,
+				// reject truncation unless allowShrinkage is set
+				if !allowShrinkage && existingSize > 150 && len(strings.TrimSpace(finalContent)) < int(existingSize)-10 && strings.Contains(canonical.NormalizeLF(existingStr), canonical.NormalizeLF(strings.TrimSpace(finalContent))) {
+					return nil, fmt.Errorf("code preservation guard: incoming content is an existing substring (%d bytes) of substantive file (%d bytes). To replace a section, pass {path, old, new} or line numbers", len(finalContent), existingSize)
+				}
+
+				// Guard B: Polyglot AST Declaration Auto-Splicing (Go, Python, TypeScript/JS)
 				if isGo && isSingleFunctionUpdate(existingStr, finalContent) {
 					if mergedCode, mergedOk := tryMergeGoFunction(existingStr, finalContent); mergedOk {
 						finalContent = mergedCode
+						spliced = true
+					}
+				}
+				ext := strings.ToLower(filepath.Ext(relPath))
+				if !spliced && (ext == ".py" || ext == ".ts" || ext == ".tsx" || ext == ".js" || ext == ".jsx") {
+					if mergedCode, mergedOk := tryMergePolyglotDeclaration(existingStr, finalContent, ext); mergedOk {
+						finalContent = mergedCode
+						spliced = true
 					}
 				}
 
 				// Guard C: File shrinkage (>40% drop) rejection
 				isTestFile := strings.HasSuffix(strings.ToLower(relPath), "_test.go") || strings.Contains(strings.ToLower(relPath), "test")
-				if !allowShrinkage && !isTestFile && existingSize > 300 && float64(len(finalContent)) < float64(existingSize)*0.6 {
-					// If Go file, attempt merge fallback before outright rejection
-					merged := false
-					if isGo {
-						if mergedCode, mergedOk := tryMergeGoFunction(existingStr, finalContent); mergedOk {
-							finalContent = mergedCode
-							merged = true
+				if !allowShrinkage && !spliced && existingSize > 200 && float64(len(finalContent)) < float64(existingSize)*0.6 {
+					if isTestFile {
+						// On test files, allow rewrite ONLY if the incoming content is a complete test file structure
+						if isGo && !strings.Contains(finalContent, "package ") {
+							return nil, fmt.Errorf("code preservation guard: rejected incomplete snippet rewrite of test file %s. To update a test case, pass {path, old, new}", relPath)
 						}
-					}
-					if !merged {
-						return nil, fmt.Errorf("code preservation guard: rejected shrinkage rewrite (>40%% size drop: %d -> %d bytes)", existingSize, len(finalContent))
+						if ext == ".py" && !strings.Contains(finalContent, "def ") && !strings.Contains(finalContent, "import ") {
+							return nil, fmt.Errorf("code preservation guard: rejected incomplete snippet rewrite of test file %s. To update a test case, pass {path, old, new}", relPath)
+						}
+					} else {
+						return nil, fmt.Errorf("code preservation guard: rejected shrinkage rewrite (>40%% size drop: %d -> %d bytes). To replace a section, use {path, old, new}", existingSize, len(finalContent))
 					}
 				}
 			}
@@ -989,6 +1017,10 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 			resp["mode"] = "LINE_RANGE"
 			resp["start_line"] = startLine
 			resp["end_line"] = endLine
+		}
+		if spliced {
+			resp["spliced"] = true
+			resp["mode"] = "AUTO_SPLICED"
 		}
 		return resp, nil
 	})
@@ -2588,6 +2620,61 @@ func tryMergeGoFunction(existingCode, incomingCode string) (string, bool) {
 	}
 
 	return merged, true
+}
+
+func tryMergePolyglotDeclaration(existingCode, incomingCode, ext string) (string, bool) {
+	ext = strings.ToLower(ext)
+	incomingTrim := strings.TrimSpace(incomingCode)
+	if incomingTrim == "" {
+		return existingCode, false
+	}
+
+	var declNames []string
+
+	if ext == ".py" {
+		pyRe := regexp.MustCompile(`(?m)^[ \t]*(?:async\s+)?def\s+([A-Za-z0-9_]+)\s*\(|(?m)^[ \t]*class\s+([A-Za-z0-9_]+)\b`)
+		matches := pyRe.FindAllStringSubmatch(incomingTrim, -1)
+		for _, m := range matches {
+			if len(m) > 1 && m[1] != "" {
+				declNames = append(declNames, m[1])
+			} else if len(m) > 2 && m[2] != "" {
+				declNames = append(declNames, m[2])
+			}
+		}
+	} else if ext == ".ts" || ext == ".tsx" || ext == ".js" || ext == ".jsx" {
+		tsRe := regexp.MustCompile(`(?m)^[ \t]*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)\b|(?m)^[ \t]*(?:export\s+)?const\s+([A-Za-z0-9_]+)\b|(?m)^[ \t]*(?:export\s+)?(?:interface|type|class)\s+([A-Za-z0-9_]+)\b`)
+		matches := tsRe.FindAllStringSubmatch(incomingTrim, -1)
+		for _, m := range matches {
+			for i := 1; i < len(m); i++ {
+				if m[i] != "" {
+					declNames = append(declNames, m[i])
+					break
+				}
+			}
+		}
+	}
+
+	if len(declNames) == 0 {
+		return existingCode, false
+	}
+
+	current := existingCode
+	splicedCount := 0
+	for _, name := range declNames {
+		updated, ok, err := devops.ReplaceASTNode(current, name, incomingCode, ext)
+		if err == nil && ok && updated != current {
+			current = updated
+			splicedCount++
+			if len(declNames) == 1 {
+				return current, true
+			}
+		}
+	}
+
+	if splicedCount > 0 {
+		return current, true
+	}
+	return existingCode, false
 }
 
 func countGoFunctions(code string) int {

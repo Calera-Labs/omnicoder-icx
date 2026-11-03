@@ -468,7 +468,7 @@ func TestDynamicBinaryHygiene_ZeroListeningPorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("omnicoder.exe version failed: %v, out: %s", err, string(outVersion))
 	}
-	if !strings.Contains(string(outVersion), "OmniCoder-ICX v1.0.0 (pure Go standard library, zero-CGo)") {
+	if !strings.Contains(string(outVersion), "OmniCoder-ICX v1.1.0 (pure Go standard library, zero-CGo)") && !strings.Contains(string(outVersion), "OmniCoder-ICX v1.0.0 (pure Go standard library, zero-CGo)") {
 		t.Fatalf("unexpected version output: %s", string(outVersion))
 	}
 	t.Logf("PASS: omnicoder.exe version verified: %s", strings.TrimSpace(string(outVersion)))

@@ -1158,7 +1158,7 @@ func normalizeToolArguments(toolName string, args map[string]any) {
 			args["path"] = v
 		}
 	case "omnicoder_patch":
-		if v := firstNonEmptyStringArg(args, "path", "file", "file_path", "filepath", "filePath", "FilePath", "target_file", "target", "TargetFile"); v != "" {
+		if v := firstNonEmptyStringArg(args, "path", "file", "file_path", "filepath", "filePath", "FilePath", "target_file", "TargetFile", "target_path", "TargetPath"); v != "" {
 			args["path"] = v
 		}
 		if args["chunks"] == nil {
@@ -1201,15 +1201,6 @@ func normalizeToolArguments(toolName string, args map[string]any) {
 				}
 			}
 		}
-		if args["content"] == nil || args["content"] == "" {
-			searchStr, hasSearch := firstStringArgPresent(args, "search_block", "old_str", "old_string", "old_content", "old_text", "old", "target_content", "TargetContent", "search", "find")
-			replaceStr, hasReplace := firstStringArgPresent(args, "replace_block", "new_str", "new_string", "new_content", "new_text", "new", "replacement_content", "ReplacementContent", "replace", "replacement")
-			if hasSearch && hasReplace && searchStr != "" {
-				args["content"] = fmt.Sprintf("<<<<<<< SEARCH\n%s\n=======\n%s\n>>>>>>> REPLACE", searchStr, replaceStr)
-			} else if v := firstNonEmptyStringArg(args, "patch", "diff", "patch_content", "replacement", "replacement_content", "ReplacementContent", "new_content", "new_text", "new", "code"); v != "" {
-				args["content"] = v
-			}
-		}
 		if args["start_line"] == nil {
 			for _, k := range []string{"line_start", "lineStart", "StartLine", "start"} {
 				if args[k] != nil {
@@ -1223,6 +1214,43 @@ func normalizeToolArguments(toolName string, args map[string]any) {
 				if args[k] != nil {
 					args["end_line"] = args[k]
 					break
+				}
+			}
+		}
+		contentStr, _ := args["content"].(string)
+		isExistingAider := strings.Contains(contentStr, "<<<<<") && strings.Contains(contentStr, "=====")
+
+		searchStr, hasSearch := firstStringArgPresent(args, "search_block", "old_str", "old_string", "old_content", "old_text", "old", "target_content", "TargetContent", "target", "Target", "search", "find")
+		replaceStr, hasReplace := firstStringArgPresent(args, "replace_block", "new_str", "new_string", "new_content", "new_text", "new", "replacement_content", "ReplacementContent", "replacement", "Replacement", "replace")
+
+		if !isExistingAider {
+			if hasSearch && strings.TrimSpace(searchStr) != "" {
+				rep := ""
+				if hasReplace {
+					rep = replaceStr
+				} else if contentStr != "" {
+					rep = contentStr
+				}
+				args["content"] = fmt.Sprintf("<<<<<<< SEARCH\n%s\n=======\n%s\n>>>>>>> REPLACE", searchStr, rep)
+				delete(args, "old")
+				delete(args, "old_str")
+				delete(args, "old_content")
+				delete(args, "old_text")
+				delete(args, "target")
+				delete(args, "Target")
+				delete(args, "search")
+				delete(args, "find")
+				delete(args, "new")
+				delete(args, "new_str")
+				delete(args, "new_content")
+				delete(args, "new_text")
+				delete(args, "replacement")
+				delete(args, "Replacement")
+			} else if contentStr == "" {
+				if v := firstNonEmptyStringArg(args, "patch", "diff", "patch_content", "code"); v != "" {
+					args["content"] = v
+				} else if hasReplace && (args["start_line"] != nil || args["chunks"] != nil || args["ast_node"] != nil) {
+					args["content"] = replaceStr
 				}
 			}
 		}
