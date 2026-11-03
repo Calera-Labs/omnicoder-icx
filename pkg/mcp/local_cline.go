@@ -10,10 +10,48 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/caleralabs/omnicoder-icx/pkg/devops"
 )
+
+// DefaultLocalClineRules is the concise 4-line .clinerules instruction set for local models in Cline.
+const DefaultLocalClineRules = "You decide which tools to use.\nDo not call omnicoder_run or omnicoder_swarm from this chat.\nCall fetch_web_content at most once. Do not invent doc URLs. Do not list the same directory twice.\nAfter writing code, call omnicoder_heal once and fix what it reports before you finish.\n"
+
+// EnsureLocalClineRules checks if .clinerules exists at the root of workspaceDir.
+// If missing, it seeds DefaultLocalClineRules when force is true or when a .cline/
+// directory is present (preventing the P-05/P-06 failure mode where .cline/ docs exist
+// without a root .clinerules file).
+func EnsureLocalClineRules(workspaceDir string, force bool) (present bool, seeded bool) {
+	if workspaceDir == "" || IsIDEOsOrSystemDir(workspaceDir) {
+		return false, false
+	}
+	rulesPath := filepath.Join(workspaceDir, ".clinerules")
+	if fi, err := os.Stat(rulesPath); err == nil && !fi.IsDir() && fi.Size() > 0 {
+		return true, false
+	}
+	hasClineDir := false
+	if fi, err := os.Stat(filepath.Join(workspaceDir, ".cline")); err == nil && fi.IsDir() {
+		hasClineDir = true
+	}
+	if !force && !hasClineDir {
+		return false, false
+	}
+	if err := os.WriteFile(rulesPath, []byte(DefaultLocalClineRules), 0o644); err != nil {
+		return false, false
+	}
+	// Add .clinerules to .git/info/exclude if a local git repo is present so auto-seeding
+	// never pollutes git status on repositories that don't track .clinerules.
+	excludePath := filepath.Join(workspaceDir, ".git", "info", "exclude")
+	if raw, err := os.ReadFile(excludePath); err == nil {
+		if !strings.Contains(string(raw), ".clinerules") {
+			updated := strings.TrimRight(string(raw), "\r\n") + "\n.clinerules\n"
+			_ = os.WriteFile(excludePath, []byte(updated), 0o644)
+		}
+	}
+	return true, true
+}
 
 // localModelResultCap is the maximum payload, in bytes, returned to an
 // interactive model for read, diff, list, and search results.
@@ -145,6 +183,9 @@ func treeFingerprint(ctx context.Context, dir string) string {
 }
 
 func doctorNextLine(res *devops.DoctorResult) string {
+	if res != nil && len(res.Git.DeletedTests) > 0 {
+		return "WARNING: tracked test files deleted (" + strings.Join(res.Git.DeletedTests, ", ") + "). Restore and fix failing tests before git_commit."
+	}
 	if res != nil && !res.Gates.Ran {
 		return "doctor done. Do not call omnicoder_doctor again. Next step is omnicoder_heal."
 	}
@@ -300,6 +341,8 @@ func (s *Server) stampInteractiveResult(tool string, args map[string]any, result
 		if r, ok := result.(*WriteFileResult); ok && r != nil && r.Next == "" {
 			if r.SyntaxWarning != "" {
 				r.Next = "wrote " + r.Path + " (WARNING: " + r.SyntaxWarning + "). Call omnicoder_heal once to fix."
+			} else if r.OverwroteExisting && r.PreviousLines >= 15 {
+				r.Next = "overwrote existing " + r.Path + ". Prefer omnicoder_patch {path, old, new} for surgical edits instead of rewriting full files. Call omnicoder_heal once now."
 			} else {
 				r.Next = "wrote " + r.Path + ". Call omnicoder_heal once. Do not list_directory or read the file back."
 			}
@@ -334,7 +377,9 @@ func capOutboundResult(name string, result any) any {
 		}
 	case "git_status":
 		if r, ok := result.(*GitStatusResult); ok && r != nil && r.Next == "" {
-			if r.Clean {
+			if len(r.DeletedTests) > 0 {
+				r.Next = "WARNING: tracked test files deleted (" + strings.Join(r.DeletedTests, ", ") + "). Restore and fix failing tests before git_commit."
+			} else if r.Clean {
 				r.Next = "clean. No commit needed. Do not call omnicoder_doctor."
 			} else {
 				r.Next = "dirty. Commit with git_commit. Do not call omnicoder_doctor first."

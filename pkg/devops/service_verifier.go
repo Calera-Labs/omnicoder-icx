@@ -112,13 +112,14 @@ func RunServiceVerifier(ctx context.Context, opts ServiceVerifierOptions) (*Serv
 		}
 	}
 
-	// 2. Build temporary binary
+	// 2. Sweep any stale live-verify binaries in the workspace and build into os.TempDir()
+	sweepStaleVerifyBinaries(opts.WorkspaceDir)
 	binName := fmt.Sprintf("omnicoder_live_verify_%d", time.Now().UnixNano())
 	if runtime.GOOS == "windows" {
 		binName += ".exe"
 	}
-	binPath := filepath.Join(opts.WorkspaceDir, binName)
-	defer os.Remove(binPath)
+	binPath := filepath.Join(os.TempDir(), binName)
+	defer removeVerifyBinary(binPath)
 
 	bStart := time.Now()
 	buildCmd := exec.CommandContext(ctx, "go", "build", "-o", binPath, entrypoint)
@@ -164,7 +165,7 @@ func RunServiceVerifier(ctx context.Context, opts ServiceVerifierOptions) (*Serv
 		return res, nil
 	}
 
-	// Ensure cleanup on return
+	// Ensure cleanup on return: kill process, wait for OS handle release, and remove temp binary
 	var killed bool
 	var killMu sync.Mutex
 	cleanup := func() {
@@ -172,8 +173,11 @@ func RunServiceVerifier(ctx context.Context, opts ServiceVerifierOptions) (*Serv
 		defer killMu.Unlock()
 		if !killed && srvCmd.Process != nil {
 			_ = srvCmd.Process.Kill()
+			_ = srvCmd.Wait()
 			killed = true
 		}
+		removeVerifyBinary(binPath)
+		sweepStaleVerifyBinaries(opts.WorkspaceDir)
 	}
 	defer cleanup()
 
@@ -317,4 +321,35 @@ func RunServiceVerifier(ctx context.Context, opts ServiceVerifierOptions) (*Serv
 	res.Summary = strings.Join(summaryParts, " · ")
 
 	return res, nil
+}
+
+func removeVerifyBinary(binPath string) {
+	if binPath == "" {
+		return
+	}
+	for attempt := 0; attempt < 10; attempt++ {
+		err := os.Remove(binPath)
+		if err == nil || os.IsNotExist(err) {
+			return
+		}
+		time.Sleep(time.Duration(attempt+1) * 15 * time.Millisecond)
+	}
+}
+
+func sweepStaleVerifyBinaries(workspaceDir string) {
+	if workspaceDir == "" {
+		return
+	}
+	entries, err := os.ReadDir(workspaceDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if strings.HasPrefix(e.Name(), "omnicoder_live_verify_") {
+			removeVerifyBinary(filepath.Join(workspaceDir, e.Name()))
+		}
+	}
 }

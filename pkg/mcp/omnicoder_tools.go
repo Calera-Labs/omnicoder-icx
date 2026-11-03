@@ -418,6 +418,7 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 		}
 
 		currentWS := s.ResolveEffectiveWorkspace(args, "")
+		clinerulesPresent, clinerulesSeeded := EnsureLocalClineRules(currentWS, false)
 
 		defaultShell := "sh / bash"
 		lineEnding := "LF"
@@ -429,6 +430,8 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 		return map[string]any{
 			"status":                   "READY",
 			"workspace_root":           currentWS,
+			"clinerules_present":       clinerulesPresent,
+			"clinerules_seeded":        clinerulesSeeded,
 			"is_ide_directory":         IsIDEOsOrSystemDir(currentWS),
 			"host_os":                  runtime.GOOS,
 			"host_arch":                runtime.GOARCH,
@@ -730,6 +733,7 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 		},
 	}, func(ctx context.Context, args map[string]any) (any, error) {
 		relPath, _ := args["path"].(string)
+		relPath = CleanLLMPathArtifacts(relPath)
 		content, _ := args["content"].(string)
 		astNode, _ := args["ast_node"].(string)
 		startLine := getOptionalIntArg(args, "start_line", 0)
@@ -1744,6 +1748,10 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 					"type":        "string",
 					"description": "Optional alias for path.",
 				},
+				"seed_clinerules": map[string]any{
+					"type":        "boolean",
+					"description": "If true, seeds a root .clinerules file when missing (auto-enabled for Cline sessions or when .cline/ exists).",
+				},
 			},
 			"required": []string{"path"},
 		},
@@ -1758,6 +1766,7 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 				pathStr = dir
 			}
 		}
+		pathStr = CleanLLMPathArtifacts(pathStr)
 		if strings.TrimSpace(pathStr) == "" {
 			return nil, fmt.Errorf("path is required")
 		}
@@ -1778,15 +1787,23 @@ func RegisterOmniCoderTools(s *Server, sCtx *OmniCoderServerContext) {
 		if sCtx.SandboxOn {
 			sCtx.VMClient = vm.NewHermeticLocalSandbox(newWS)
 		}
+		seedFlag := getOptionalBoolArg(args, "seed_clinerules", false)
+		cName, _ := s.clientIdentity()
+		if strings.Contains(strings.ToLower(cName), "cline") {
+			seedFlag = true
+		}
+		clinerulesPresent, clinerulesSeeded := EnsureLocalClineRules(newWS, seedFlag)
 		return map[string]any{
-			"success":        true,
-			"status":         "SWITCHED",
-			"workspace_root": newWS,
-			"backend":        det.Backend,
-			"model":          det.Model,
-			"has_git":        det.HasGit,
-			"is_offline":     det.IsOffline,
-			"timestamp":      time.Now().UTC().Format(time.RFC3339),
+			"success":            true,
+			"status":             "SWITCHED",
+			"workspace_root":     newWS,
+			"backend":            det.Backend,
+			"model":              det.Model,
+			"has_git":            det.HasGit,
+			"is_offline":         det.IsOffline,
+			"clinerules_present": clinerulesPresent,
+			"clinerules_seeded":  clinerulesSeeded,
+			"timestamp":          time.Now().UTC().Format(time.RFC3339),
 		}, nil
 	})
 

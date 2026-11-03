@@ -60,12 +60,14 @@ type ReadFileResult struct {
 
 // WriteFileResult represents the structured outcome of writing a file.
 type WriteFileResult struct {
-	Next          string `json:"next,omitempty"`
-	Path          string `json:"path"`
-	BytesWritten  int    `json:"bytes_written"`
-	SHA256        string `json:"sha256"`
-	Status        string `json:"status"` // "WRITTEN"
-	SyntaxWarning string `json:"syntax_warning,omitempty"`
+	Next              string `json:"next,omitempty"`
+	Path              string `json:"path"`
+	BytesWritten      int    `json:"bytes_written"`
+	SHA256            string `json:"sha256"`
+	Status            string `json:"status"` // "WRITTEN"
+	SyntaxWarning     string `json:"syntax_warning,omitempty"`
+	OverwroteExisting bool   `json:"overwrote_existing,omitempty"`
+	PreviousLines     int    `json:"previous_lines,omitempty"`
 }
 
 // DirectoryEntry represents a file or folder discovered in a directory listing.
@@ -231,6 +233,7 @@ func HandleReadFile(ctx context.Context, workspaceDir string, args map[string]an
 	if err != nil {
 		return nil, err
 	}
+	pathStr = CleanLLMPathArtifacts(pathStr)
 	offset := getOptionalIntArg(args, "offset", 0)
 	if offset <= 0 {
 		for _, k := range []string{"start_line", "line_start", "lineStart", "StartLine"} {
@@ -403,6 +406,7 @@ func HandleWriteFile(ctx context.Context, workspaceDir string, args map[string]a
 	if err != nil {
 		return nil, err
 	}
+	pathStr = CleanLLMPathArtifacts(pathStr)
 	content, err := getStringArg(args, "content", true)
 	if err != nil {
 		return nil, err
@@ -414,13 +418,20 @@ func HandleWriteFile(ctx context.Context, workspaceDir string, args map[string]a
 		return nil, err
 	}
 
+	overwroteExisting := false
+	previousLines := 0
 	if _, err := os.Stat(targetPath); err == nil {
 		if !overwrite {
 			return nil, fmt.Errorf("%w: %s (use overwrite=true to replace)", ErrFileExists, pathStr)
 		}
+		overwroteExisting = true
 		// Preserve CRLF if existing file used CRLF
 		if raw, readErr := os.ReadFile(targetPath); readErr == nil {
-			if strings.Contains(string(raw), "\r\n") && !strings.Contains(content, "\r\n") {
+			rawStr := string(raw)
+			if len(strings.TrimSpace(rawStr)) > 0 {
+				previousLines = strings.Count(strings.ReplaceAll(rawStr, "\r\n", "\n"), "\n") + 1
+			}
+			if strings.Contains(rawStr, "\r\n") && !strings.Contains(content, "\r\n") {
 				content = strings.ReplaceAll(content, "\n", "\r\n")
 			}
 		}
@@ -467,11 +478,13 @@ func HandleWriteFile(ctx context.Context, workspaceDir string, args map[string]a
 	syntaxWarn := checkWrittenFileSyntaxAndCollisions(targetPath, pathStr, content)
 
 	return &WriteFileResult{
-		Path:          filepath.ToSlash(pathStr),
-		BytesWritten:  n,
-		SHA256:        sha,
-		Status:        "WRITTEN",
-		SyntaxWarning: syntaxWarn,
+		Path:              filepath.ToSlash(pathStr),
+		BytesWritten:      n,
+		SHA256:            sha,
+		Status:            "WRITTEN",
+		SyntaxWarning:     syntaxWarn,
+		OverwroteExisting: overwroteExisting,
+		PreviousLines:     previousLines,
 	}, nil
 }
 
@@ -519,7 +532,10 @@ func checkWrittenFileSyntaxAndCollisions(targetPath, relPath, content string) st
 
 // HandleListDirectory lists directory contents within the workspace.
 func HandleListDirectory(ctx context.Context, workspaceDir string, args map[string]any) ([]DirectoryEntry, error) {
-	pathStr := getOptionalStringArg(args, "path", ".")
+	pathStr := CleanLLMPathArtifacts(getOptionalStringArg(args, "path", "."))
+	if pathStr == "" {
+		pathStr = "."
+	}
 	recursive := getOptionalBoolArg(args, "recursive", false)
 	defaultDepth := 1
 	if recursive {
@@ -629,13 +645,39 @@ func findNearestExistingAncestor(p string) (string, error) {
 // ResolveSecurePath validates that reqPath resolves within workspaceDir and cannot escape.
 // It handles traversal attacks (../, ..\), null bytes, UNC paths, alternate data streams,
 // URL-encoded traversals, Windows reserved device names, and symlink breakouts.
+// CleanLLMPathArtifacts strips markdown backticks, wrapping quotes, and trailing
+// shell prompt sigils (%, $) that local LLMs occasionally append to file paths.
+func CleanLLMPathArtifacts(raw string) string {
+    if strings.ContainsRune(raw, 0) {
+        return raw
+    }
+    s := strings.TrimSpace(raw)
+    for len(s) > 0 {
+        prev := s
+        s = strings.Trim(s, "`\"'")
+        s = strings.TrimSpace(s)
+        if strings.HasSuffix(s, "%") || strings.HasSuffix(s, "$") {
+            s = strings.TrimRight(s, "%$")
+            s = strings.TrimSpace(s)
+        }
+        if s == prev {
+            break
+        }
+    }
+    return s
+}
+
+// ResolveSecurePath validates that reqPath resolves within workspaceDir and cannot escape.
+// It handles traversal attacks (../, ..\), null bytes, UNC paths, alternate data streams,
+// URL-encoded traversals, Windows reserved device names, and symlink breakouts.
 func ResolveSecurePath(workspaceDir, reqPath string) (string, error) {
-	if workspaceDir == "" {
-		return "", fmt.Errorf("%w: workspace directory cannot be empty", ErrInvalidPath)
-	}
-	if reqPath == "" {
-		return "", fmt.Errorf("%w: requested path cannot be empty", ErrInvalidPath)
-	}
+    if workspaceDir == "" {
+        return "", fmt.Errorf("%w: workspace directory cannot be empty", ErrInvalidPath)
+    }
+    reqPath = CleanLLMPathArtifacts(reqPath)
+    if reqPath == "" {
+        return "", fmt.Errorf("%w: requested path cannot be empty", ErrInvalidPath)
+    }
 
 	// 1. Poison Null Byte Check & Traversal Sequence Check
 	if strings.ContainsRune(reqPath, 0) {

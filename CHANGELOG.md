@@ -18,10 +18,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - `executeHeal` retains and applies the highest-scoring syntax-valid candidate (`bestFallbackBlocks`) across speculative beam turns (`--beam-k > 1`) when multi-step problems require partial progress.
   - `ReplaceFuzzy` automatically strips synthetic prompt context headers (`# --- Additional Relevant`, `=== Swarm Supporting File:`) and splices across `... (docstring elided)` markers.
   - Added `--cmd` / `--command` flags to `omnicoder heal` and auto-inlined root `PROMPT.md` instructions in `--direct` mode while preserving syntactically valid deliverables.
-- **MCP Local-Model Guardrails & Telemetry (`pkg/mcp`)**:
+- **MCP Local-Model Guardrails & Telemetry (`pkg/mcp`, `pkg/devops`)**:
   - Immediate syntax and Go same-package `func main()` collision detection (`checkWrittenFileSyntaxAndCollisions`) on `write_file` and `omnicoder_patch`, surfaced via `syntax_warning` and `next` steering hints.
-  - Compact local-model tool schemas, interactive `next` hints, and `.clinerules` guidance for local/open-weights MCP agents.
-  - Unredacted `token_budget`, `max_tokens`, and token count fields in `.omnicoder/mcp_trace.jsonl` (`SanitizeArguments`).
+  - Automatic LLM path artifact sanitization (`CleanLLMPathArtifacts`) stripping trailing markdown backticks (`` ` ``), wrapping quotes, and shell prompt sigils (`%`, `$`).
+  - Temp-dir isolation (`os.TempDir()`), `srvCmd.Wait()` process handle release, and stale binary sweeping for `omnicoder_verify_service` (`RunServiceVerifier`).
+  - Actionable 15-line `Closest context` snippet with 1-based line numbers (`FindClosestBlockContext`) attached to `BLOCK_MATCH_FAILED` / `FUZZY_SEARCH_MISMATCH` errors.
+  - Tracked test deletion guard in `git_commit`, `git_status`, and `omnicoder_doctor` (`DeletedTests`, `allow_test_deletion`).
+  - Interactive steering on repeated full-file `write_file` overwrites (`OverwroteExisting`, `PreviousLines`) directing local models toward surgical `omnicoder_patch` calls.
+  - Umbrella workspace subproject fallback (`resolveUmbrellaGitSubproject`) and `workspace` argument support across `git_status`, `git_diff`, and `git_commit`.
+  - Automatic `.clinerules` seeding (`EnsureLocalClineRules`) with `.git/info/exclude` hygiene when switching into a workspace with `.cline/` or an active Cline session.
+  - Compact local-model tool schemas, interactive `next` hints, and unredacted `token_budget`, `max_tokens`, and token count fields in `.omnicoder/mcp_trace.jsonl` (`SanitizeArguments`).
 
 ---
 

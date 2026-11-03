@@ -1330,12 +1330,16 @@ func ApplyEditBlocks(req EditBlockRequest) (*EditBlockResult, error) {
 					}
 				}
 
+				hint := ""
+				if snippet, sLine, eLine := FindClosestBlockContext(currentText, b.SearchText, 15); snippet != "" {
+					hint = fmt.Sprintf("\nClosest context in %s (lines %d-%d):\n%s\nRetry omnicoder_patch using exact lines above (or start_line=%d, end_line=%d).", relPath, sLine, eLine, snippet, sLine, eLine)
+				}
 				return &EditBlockResult{
 					Status:       "REJECTED",
 					PatchID:      fmt.Sprintf("patch-fail-%d", time.Now().UnixNano()),
-					ErrorMessage: fmt.Sprintf("BLOCK_MATCH_FAILED on file %s (block %d): %v", relPath, blockIdx+1, matchErr),
+					ErrorMessage: fmt.Sprintf("BLOCK_MATCH_FAILED on file %s (block %d): %v%s", relPath, blockIdx+1, matchErr, hint),
 					Applied:      false,
-				}, fmt.Errorf("BLOCK_MATCH_FAILED on %s (block %d): %w", relPath, blockIdx+1, matchErr)
+				}, fmt.Errorf("BLOCK_MATCH_FAILED on %s (block %d): %w%s", relPath, blockIdx+1, matchErr, hint)
 			}
 			currentText = newText
 			totalAdded += added
@@ -1441,4 +1445,113 @@ func isItemInList(list []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// FindClosestBlockContext locates the highest-overlap window of up to maxLines in content
+// for a failed searchBlock and formats it with 1-based line numbers so callers can recover
+// without an extra read_file round-trip.
+func FindClosestBlockContext(content, searchBlock string, maxLines int) (string, int, int) {
+	if maxLines <= 0 {
+		maxLines = 15
+	}
+	normContent := strings.ReplaceAll(content, "\r\n", "\n")
+	if strings.TrimSpace(normContent) == "" {
+		return "", 0, 0
+	}
+	cLines := strings.Split(normContent, "\n")
+
+	normSearch := strings.ReplaceAll(searchBlock, "\r\n", "\n")
+	var sLines []string
+	tokenSet := make(map[string]struct{})
+	for _, sl := range strings.Split(normSearch, "\n") {
+		t := strings.TrimSpace(sl)
+		if t != "" {
+			sLines = append(sLines, t)
+			for _, tok := range splitContextTokens(t) {
+				if len(tok) >= 3 {
+					tokenSet[strings.ToLower(tok)] = struct{}{}
+				}
+			}
+		}
+	}
+	if len(sLines) == 0 {
+		return "", 0, 0
+	}
+
+	winSize := len(sLines) + 4
+	if winSize < 6 {
+		winSize = 6
+	}
+	if winSize > maxLines {
+		winSize = maxLines
+	}
+	if winSize > len(cLines) {
+		winSize = len(cLines)
+	}
+
+	lineScores := make([]int, len(cLines))
+	for i, cl := range cLines {
+		ct := strings.TrimSpace(cl)
+		if ct == "" {
+			continue
+		}
+		score := 0
+		for sIdx, sl := range sLines {
+			if ct == sl {
+				if sIdx == 0 {
+					score += 15
+				} else {
+					score += 10
+				}
+				break
+			}
+			if len(ct) >= 4 && len(sl) >= 4 && (strings.Contains(ct, sl) || strings.Contains(sl, ct)) {
+				score += 5
+			}
+		}
+		for _, tok := range splitContextTokens(ct) {
+			if _, ok := tokenSet[strings.ToLower(tok)]; ok {
+				score += 2
+			}
+		}
+		lineScores[i] = score
+	}
+
+	bestStart := 0
+	bestScore := 0
+	for start := 0; start <= len(cLines)-winSize; start++ {
+		sum := 0
+		for k := start; k < start+winSize; k++ {
+			sum += lineScores[k]
+		}
+		if sum > bestScore {
+			bestScore = sum
+			bestStart = start
+		}
+	}
+
+	if bestScore == 0 {
+		if len(cLines) <= maxLines {
+			bestStart = 0
+			winSize = len(cLines)
+		} else {
+			return "", 0, 0
+		}
+	}
+
+	end := bestStart + winSize
+	if end > len(cLines) {
+		end = len(cLines)
+	}
+	var out []string
+	for idx := bestStart; idx < end; idx++ {
+		out = append(out, fmt.Sprintf("L%d: %s", idx+1, cLines[idx]))
+	}
+	return strings.Join(out, "\n"), bestStart + 1, end
+}
+
+func splitContextTokens(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_')
+	})
 }

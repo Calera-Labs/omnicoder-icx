@@ -37,6 +37,7 @@ type GitSnapshot struct {
 	IsClean        bool     `json:"is_clean"`
 	ModifiedFiles  []string `json:"modified_files,omitempty"`
 	UntrackedFiles []string `json:"untracked_files,omitempty"`
+	DeletedTests   []string `json:"deleted_tests,omitempty"`
 }
 
 // GateSnapshot captures the execution outcome of automated build and test gates.
@@ -290,6 +291,9 @@ func inspectGit(ctx context.Context, ws string, g *GitSnapshot) {
 			g.UntrackedFiles = append(g.UntrackedFiles, fPath)
 		} else {
 			g.ModifiedFiles = append(g.ModifiedFiles, fPath)
+			if (code[0] == 'D' || code[1] == 'D') && isDoctorTestFilePath(fPath) {
+				g.DeletedTests = append(g.DeletedTests, filepath.ToSlash(fPath))
+			}
 		}
 	}
 
@@ -301,6 +305,22 @@ func inspectGit(ctx context.Context, ws string, g *GitSnapshot) {
 	if err := logCmd.Run(); err == nil {
 		g.HeadCommit = strings.TrimSpace(logBuf.String())
 	}
+}
+
+func isDoctorTestFilePath(relPath string) bool {
+	base := strings.ToLower(filepath.Base(filepath.FromSlash(relPath)))
+	if strings.HasSuffix(base, "_test.go") ||
+		strings.HasSuffix(base, "_test.py") ||
+		(strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".py")) ||
+		strings.HasSuffix(base, "_test.rs") {
+		return true
+	}
+	for _, suffix := range []string{".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", ".test.js", ".test.jsx", ".spec.js", ".spec.jsx"} {
+		if strings.HasSuffix(base, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func detectProjectVersion(ws string) string {

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // GitStatusResult reports structured git status.
@@ -22,6 +23,7 @@ type GitStatusResult struct {
 	Staged       []string `json:"staged"`
 	Modified     []string `json:"modified"`
 	Untracked    []string `json:"untracked"`
+	DeletedTests []string `json:"deleted_tests,omitempty"`
 	TotalChanges int      `json:"total_changes"`
 }
 
@@ -55,6 +57,10 @@ var GitStatusSchema = map[string]any{
 			"type":        "string",
 			"description": "Optional repository path relative to workspace (default: workspace root).",
 		},
+		"workspace": map[string]any{
+			"type":        "string",
+			"description": "Optional workspace or subproject directory override.",
+		},
 	},
 }
 
@@ -72,6 +78,10 @@ var GitDiffSchema = map[string]any{
 		"repo_path": map[string]any{
 			"type":        "string",
 			"description": "Optional repository path relative to workspace (default: workspace root).",
+		},
+		"workspace": map[string]any{
+			"type":        "string",
+			"description": "Optional workspace or subproject directory override.",
 		},
 	},
 }
@@ -93,6 +103,14 @@ var GitCommitSchema = map[string]any{
 		"repo_path": map[string]any{
 			"type":        "string",
 			"description": "Optional repository path relative to workspace (default: workspace root).",
+		},
+		"workspace": map[string]any{
+			"type":        "string",
+			"description": "Optional workspace or subproject directory override.",
+		},
+		"allow_test_deletion": map[string]any{
+			"type":        "boolean",
+			"description": "If true, permits committing the deletion of tracked test files (default: false).",
 		},
 	},
 	"required": []string{"message"},
@@ -179,6 +197,7 @@ func HandleGitStatus(ctx context.Context, workspaceDir string, args map[string]a
 	staged := make([]string, 0)
 	modified := make([]string, 0)
 	untracked := make([]string, 0)
+	var deletedTests []string
 
 	for i, rawLine := range lines {
 		line := strings.TrimRight(rawLine, "\r")
@@ -214,6 +233,9 @@ func HandleGitStatus(ctx context.Context, workspaceDir string, args map[string]a
 			if y != ' ' && y != '?' {
 				modified = append(modified, cleanPath)
 			}
+			if (x == 'D' || y == 'D') && IsTestFilePath(cleanPath) {
+				deletedTests = append(deletedTests, cleanPath)
+			}
 		}
 	}
 
@@ -226,6 +248,7 @@ func HandleGitStatus(ctx context.Context, workspaceDir string, args map[string]a
 		Staged:       staged,
 		Modified:     modified,
 		Untracked:    untracked,
+		DeletedTests: deletedTests,
 		TotalChanges: total,
 	}, nil
 }
@@ -301,6 +324,13 @@ func HandleGitCommit(ctx context.Context, workspaceDir string, args map[string]a
 		}
 	}
 
+	// 1b. Guard against accidental deletion of tracked test files
+	if !getOptionalBoolArg(args, "allow_test_deletion", false) {
+		if deletedTests := detectStagedDeletedTests(ctx, repoDir); len(deletedTests) > 0 {
+			return nil, fmt.Errorf("mcp: commit blocked: tracked test files were deleted (%s); restore and fix the failing tests instead of deleting them, or pass allow_test_deletion=true if intentional", strings.Join(deletedTests, ", "))
+		}
+	}
+
 	// 2. Commit
 	commitOut, commitErr, err := runGit(ctx, repoDir, "commit", "-m", message)
 	if err != nil {
@@ -362,10 +392,110 @@ func runGit(ctx context.Context, dir string, args ...string) (string, string, er
 }
 
 func resolveRepoDirectory(workspaceDir, repoPath string) (string, error) {
+	repoPath = CleanLLMPathArtifacts(repoPath)
 	if repoPath == "" || repoPath == "." {
-		return ResolveSecurePath(workspaceDir, ".")
+		resolved, err := ResolveSecurePath(workspaceDir, ".")
+		if err != nil {
+			return "", err
+		}
+		return resolveUmbrellaGitSubproject(resolved), nil
 	}
-	return ResolveSecurePath(workspaceDir, repoPath)
+	resolved, err := ResolveSecurePath(workspaceDir, repoPath)
+	if err != nil {
+		return "", err
+	}
+	return resolveUmbrellaGitSubproject(resolved), nil
+}
+
+// resolveUmbrellaGitSubproject returns dir if it contains .git (or is inside a git repo),
+// or falls back to the most recently modified immediate child git repository when dir is
+// a multi-project umbrella folder (e.g. "2028 Projects").
+func resolveUmbrellaGitSubproject(dir string) string {
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		return dir
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return dir
+	}
+	var bestDir string
+	var bestTime time.Time
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+			continue
+		}
+		childPath := filepath.Join(dir, name)
+		if _, gErr := os.Stat(filepath.Join(childPath, ".git")); gErr != nil {
+			continue
+		}
+		var latest time.Time
+		if fi, sErr := entry.Info(); sErr == nil {
+			latest = fi.ModTime()
+		}
+		if subEntries, rErr := os.ReadDir(childPath); rErr == nil {
+			for _, se := range subEntries {
+				if strings.HasPrefix(se.Name(), ".") {
+					continue
+				}
+				if sfi, sfErr := se.Info(); sfErr == nil && sfi.ModTime().After(latest) {
+					latest = sfi.ModTime()
+				}
+			}
+		}
+		if bestDir == "" || latest.After(bestTime) {
+			bestDir = childPath
+			bestTime = latest
+		}
+	}
+	if bestDir != "" {
+		return bestDir
+	}
+	return dir
+}
+
+// IsTestFilePath returns true if relPath points to a unit/integration test file
+// across Go, Python, TypeScript/JavaScript, or Rust conventions.
+func IsTestFilePath(relPath string) bool {
+	base := strings.ToLower(filepath.Base(filepath.FromSlash(relPath)))
+	if strings.HasSuffix(base, "_test.go") ||
+		strings.HasSuffix(base, "_test.py") ||
+		(strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".py")) ||
+		strings.HasSuffix(base, "_test.rs") {
+		return true
+	}
+	for _, suffix := range []string{".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", ".test.js", ".test.jsx", ".spec.js", ".spec.jsx"} {
+		if strings.HasSuffix(base, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func detectStagedDeletedTests(ctx context.Context, repoDir string) []string {
+	stdout, _, err := runGit(ctx, repoDir, "status", "--porcelain=v1")
+	if err != nil {
+		return nil
+	}
+	var deleted []string
+	for _, rawLine := range strings.Split(stdout, "\n") {
+		line := strings.TrimRight(rawLine, "\r")
+		if len(line) < 3 {
+			continue
+		}
+		code := line[0:2]
+		if code[0] != 'D' && code[1] != 'D' {
+			continue
+		}
+		filePath := filepath.ToSlash(strings.TrimSpace(line[3:]))
+		if IsTestFilePath(filePath) {
+			deleted = append(deleted, filePath)
+		}
+	}
+	return deleted
 }
 
 func parseBranchHeader(header string) string {
