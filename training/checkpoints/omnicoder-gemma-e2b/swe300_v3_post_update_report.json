@@ -1,0 +1,126 @@
+{
+  "summary": {
+    "benchmark": "Official SWE-300 (princeton-nlp/SWE-bench_Lite Test Split) — Post-Update v3 Live Run",
+    "config": "Config 3 v3: Full Organism (OmniCoder-ICX + VLN Cartridge + OmniCoder-Gemma-E2B + Law 1-4 Mathematical Upgrades + Speculative K=4)",
+    "hardware": "NVIDIA A100-SXM4-80GB",
+    "zero_leakage_training_split": true,
+    "swe300_training_overlap_count": 0,
+    "total_instances": 300,
+    "wall_clock_sec": 578.91,
+    "wall_clock_min": 9.65,
+    "peak_vram_mb": 14555.8,
+    "metrics": {
+      "locate_json_validity_pct": 100.0,
+      "locate_real_repo_top1_file_accuracy_pct": 45.0,
+      "locate_real_repo_top3_file_recall_pct": 59.3,
+      "locate_real_repo_top6_candidate_recall_pct": 65.3,
+      "repro_valid_python_ast_pct": 99.7,
+      "heal_valid_non_noop_editblock_pct": 99.3,
+      "heal_real_file_anchor_match_pct": 98.7,
+      "heal_ast_verified_patch_generated_pct": 95.3,
+      "patched_correct_gold_file_pct": 37.7,
+      "mean_diff_token_f1_on_patched_pct": 25.7,
+      "vln_hint_coverage_pct": 57.0
+    },
+    "predictions_jsonl": "/content/swe300_v3_results/predictions.jsonl",
+    "google_drive_archive": "/content/drive/MyDrive/omnicoder_swe_benchmarks/latest/swe300_v3_results"
+  },
+  "per_repo": {
+    "astropy/astropy": {
+      "total": 6,
+      "loc_top1_pct": 50.0,
+      "loc_top3_pct": 66.7,
+      "patched_pct": 100.0,
+      "gold_file_patched_pct": 50.0,
+      "mean_diff_f1_pct": 28.6
+    },
+    "django/django": {
+      "total": 114,
+      "loc_top1_pct": 45.6,
+      "loc_top3_pct": 61.4,
+      "patched_pct": 93.9,
+      "gold_file_patched_pct": 36.8,
+      "mean_diff_f1_pct": 28.0
+    },
+    "matplotlib/matplotlib": {
+      "total": 23,
+      "loc_top1_pct": 43.5,
+      "loc_top3_pct": 56.5,
+      "patched_pct": 95.7,
+      "gold_file_patched_pct": 30.4,
+      "mean_diff_f1_pct": 22.6
+    },
+    "mwaskom/seaborn": {
+      "total": 4,
+      "loc_top1_pct": 25.0,
+      "loc_top3_pct": 75.0,
+      "patched_pct": 100.0,
+      "gold_file_patched_pct": 25.0,
+      "mean_diff_f1_pct": 11.4
+    },
+    "pallets/flask": {
+      "total": 3,
+      "loc_top1_pct": 33.3,
+      "loc_top3_pct": 33.3,
+      "patched_pct": 100.0,
+      "gold_file_patched_pct": 33.3,
+      "mean_diff_f1_pct": 28.6
+    },
+    "psf/requests": {
+      "total": 6,
+      "loc_top1_pct": 66.7,
+      "loc_top3_pct": 66.7,
+      "patched_pct": 100.0,
+      "gold_file_patched_pct": 66.7,
+      "mean_diff_f1_pct": 22.9
+    },
+    "pydata/xarray": {
+      "total": 5,
+      "loc_top1_pct": 20.0,
+      "loc_top3_pct": 60.0,
+      "patched_pct": 100.0,
+      "gold_file_patched_pct": 20.0,
+      "mean_diff_f1_pct": 22.9
+    },
+    "pylint-dev/pylint": {
+      "total": 6,
+      "loc_top1_pct": 50.0,
+      "loc_top3_pct": 50.0,
+      "patched_pct": 100.0,
+      "gold_file_patched_pct": 50.0,
+      "mean_diff_f1_pct": 31.3
+    },
+    "pytest-dev/pytest": {
+      "total": 17,
+      "loc_top1_pct": 41.2,
+      "loc_top3_pct": 47.1,
+      "patched_pct": 94.1,
+      "gold_file_patched_pct": 35.3,
+      "mean_diff_f1_pct": 21.8
+    },
+    "scikit-learn/scikit-learn": {
+      "total": 23,
+      "loc_top1_pct": 78.3,
+      "loc_top3_pct": 82.6,
+      "patched_pct": 95.7,
+      "gold_file_patched_pct": 65.2,
+      "mean_diff_f1_pct": 19.1
+    },
+    "sphinx-doc/sphinx": {
+      "total": 16,
+      "loc_top1_pct": 25.0,
+      "loc_top3_pct": 43.8,
+      "patched_pct": 100.0,
+      "gold_file_patched_pct": 25.0,
+      "mean_diff_f1_pct": 24.0
+    },
+    "sympy/sympy": {
+      "total": 77,
+      "loc_top1_pct": 40.3,
+      "loc_top3_pct": 55.8,
+      "patched_pct": 94.8,
+      "gold_file_patched_pct": 33.8,
+      "mean_diff_f1_pct": 26.9
+    }
+  }
+}

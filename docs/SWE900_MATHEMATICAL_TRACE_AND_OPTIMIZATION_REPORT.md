@@ -186,3 +186,47 @@ Based directly on Laws 1–3, the following upgrades have been implemented and v
    - Added explicit prose path/basename boost (`astEff += 0.35`, matching `s_explicit = +24.54`).
 2. **Hybrid Coupled Neural-Deterministic Reranking (`cmd/omnicoder/main.go`):**
    - In `executeSolve`, replaced unconditional neural overwrite (`loc.PrimaryFile = locDec.PrimaryFile`) with additive hybrid coupling (`hyb = tc.TotalScore + 0.28 * I[primary] + 0.14 * I[support_0]`) while preserving the runner-up candidate in `loc.SupportingFiles[0]` for multi-file speculative repair.
+3. **End-to-End `v3` Pipeline Upgrades (`training/colab_a100_swe300_parallel.py`):**
+   - Implemented Law 1 Ridge-learned feature coupling + deep-frame stub discount (`0.65x` on isolated deep frames without AST definitions or domain symbol usage) + AST-def/usage synergy (`+18.0`).
+   - Implemented Law 2 expanded 12-line (`440`-char) focal windows (`w1` and `w2`).
+   - Implemented Law 3 unbiased `K=4` tournament priors (`21.5`, `21.0`, `20.5`, `20.5 * min(1.0, sc2/sc1)`) and lowered secondary candidate threshold (`sc2 >= 0.45 * sc1`).
+   - Implemented Law 4 AST `IndentationError` auto-healer ($\Delta \text{indent} \in \{0, +4, -4, +8, -8, \text{orig\_indent}\}$) + unique `(first_line, last_line)` boundary anchor matcher.
+
+---
+
+## 7. Live Post-Update (`v3`) A100 Verification (`v1` vs. `v2` vs. `v3`)
+
+Following the mathematical trace and implementation of Laws 1–4, we executed a full live **Post-Update (`v3`) Official Zero-Leakage SWE-300 Benchmark** on the NVIDIA A100-SXM4-80GB (`578.91s` / `9.65 minutes`, `14,555.8 MB` peak VRAM, `0 / 300` training overlap).
+
+| Metric (Official `SWE-300`, `N = 300`, `0%` Overlap) | `v1` Baseline | `v2` Upgraded | **`v3` Post-Update (Laws 1–4)** | Total Gain (`v1` $\to$ `v3`) | Post-Trace Gain (`v2` $\to$ `v3`) |
+| :--- | ---: | ---: | ---: | :--- | :--- |
+| **Wall-Clock Runtime (`NVIDIA A100-80GB`)** | `24.16 min` | `20.55 min` | **`9.65 min` (`578.9s`)** | **`-14.51 min` (`2.5x` faster)** | **`-10.90 min` (`2.1x` faster)** |
+| **`[OC:LOCATE]` JSON Validity** | `100.0%` (`300/300`) | `100.0%` (`300/300`) | **`100.0%` (`300/300`)** | `0.0%` | `0.0%` |
+| **`[OC:LOCATE]` Real-Repo Top-1 Accuracy (`Loc@1`)** | `35.3%` (`106/300`) | `40.3%` (`121/300`) | **`45.0%` (`135/300`)** | **`+9.7%` (`+29` exact files)** | **`+4.7%` (`+14` exact files)** |
+| **`[OC:LOCATE]` Real-Repo Top-3 Recall (`Loc@3`)** | `60.0%` (`180/300`) | `57.3%` (`172/300`) | **`59.3%` (`178/300`)** | `-0.7%` | **`+2.0%` (`+6` instances)** |
+| **`[OC:LOCATE]` Real-Repo Top-6 Candidate Recall** | `64.3%` (`193/300`) | `64.7%` (`194/300`) | **`65.3%` (`196/300`)** | **`+1.0%` (`+3` instances)** | **`+0.6%` (`+2` instances)** |
+| **`[OC:REPRO]` Valid Python AST Reproducer Rate** | `99.7%` (`299/300`) | `99.0%` (`297/300`) | **`99.7%` (`299/300`)** | `0.0%` | **`+0.7%` (`+2` instances)** |
+| **`[OC:HEAL]` Valid Non-Noop `EditBlock` Rate (`K=4`)** | `93.7%` (`281/300`) | `98.0%` (`294/300`) | **`99.3%` (`298/300`)** | **`+5.6%` (`+17` instances)** | **`+1.3%` (`+4` instances)** |
+| **`[OC:HEAL]` Real-File `search_text` Anchor Match** | `87.7%` (`263/300`) | `95.7%` (`287/300`) | **`98.7%` (`296/300`)** | **`+11.0%` (`+33` instances)** | **`+3.0%` (`+9` instances)** |
+| **`[OC:HEAL]` AST-Verified Unified Diff Rate (`Patched`)** | `86.0%` (`258/300`) | `93.7%` (`281/300`) | **`95.3%` (`286/300`)** | **`+9.3%` (`+28` instances)** | **`+1.6%` (`+5` instances)** |
+| **End-to-End `GoldFile` AST-Verified Patch Rate** | `29.3%` (`88/300`) | `34.7%` (`104/300`) | **`37.7%` (`113/300`)** | **`+8.4%` (`+25` gold patches, `+28.4%` rel.)** | **`+3.0%` (`+9` gold patches, `+8.7%` rel.)** |
+| **Mean Diff Token F1 vs. Ground-Truth PR (`MeanDiffF1`)** | `22.9%` | `26.0%` | **`25.7%`** | **`+2.8%` (`+12.2%` rel.)** | `-0.3%` |
+
+### Per-Repository Progression (`v1` $\to$ `v2` $\to$ **`v3` Post-Update**)
+
+| Repository | Total | `v1` $\to$ `v2` $\to$ **`v3 Loc@1`** | `v1` $\to$ `v2` $\to$ **`v3 Patched`** | `v1` $\to$ `v2` $\to$ **`v3 GoldFile`** | `v1` $\to$ `v2` $\to$ **`v3 DiffF1`** |
+| :--- | ---: | :---: | :---: | :---: | :---: |
+| `astropy/astropy` | 6 | `66.7%` $\to$ `50.0%` $\to$ **`50.0%`** | `83.3%` $\to$ `66.7%` $\to$ **`100.0%`** | `50.0%` $\to$ `16.7%` $\to$ **`50.0%`** | `21.5%` $\to$ `24.7%` $\to$ **`28.6%`** |
+| `django/django` | 114 | `38.6%` $\to$ `46.5%` $\to$ **`45.6%`** | `86.0%` $\to$ `94.7%` $\to$ **`93.9%`** | `33.3%` $\to$ `42.1%` $\to$ **`36.8%`** | `26.9%` $\to$ `30.6%` $\to$ **`28.0%`** |
+| `matplotlib/matplotlib` | 23 | `26.1%` $\to$ `34.8%` $\to$ **`43.5%`** | `95.7%` $\to$ `95.7%` $\to$ **`95.7%`** | `26.1%` $\to$ `34.8%` $\to$ **`30.4%`** | `22.7%` $\to$ `22.7%` $\to$ **`22.6%`** |
+| `mwaskom/seaborn` | 4 | `25.0%` $\to$ `25.0%` $\to$ **`25.0%`** | `75.0%` $\to$ `100.0%` $\to$ **`100.0%`** | `25.0%` $\to$ `25.0%` $\to$ **`25.0%`** | `18.7%` $\to$ `33.3%` $\to$ **`11.4%`** |
+| `pallets/flask` | 3 | `66.7%` $\to$ `33.3%` $\to$ **`33.3%`** | `100.0%` $\to$ `100.0%` $\to$ **`100.0%`** | `66.7%` $\to$ `33.3%` $\to$ **`33.3%`** | `26.2%` $\to$ `16.3%` $\to$ **`28.6%`** |
+| `psf/requests` | 6 | `16.7%` $\to$ `66.7%` $\to$ **`66.7%`** | `100.0%` $\to$ `83.3%` $\to$ **`100.0%`** | `16.7%` $\to$ `50.0%` $\to$ **`66.7%`** | `29.6%` $\to$ `22.0%` $\to$ **`22.9%`** |
+| `pydata/xarray` | 5 | `40.0%` $\to$ `20.0%` $\to$ **`20.0%`** | `80.0%` $\to$ `100.0%` $\to$ **`100.0%`** | `20.0%` $\to$ `20.0%` $\to$ **`20.0%`** | `16.4%` $\to$ `17.5%` $\to$ **`22.9%`** |
+| `pylint-dev/pylint` | 6 | `16.7%` $\to$ `33.3%` $\to$ **`50.0%`** | `33.3%` $\to$ `83.3%` $\to$ **`100.0%`** | `0.0%` $\to$ `33.3%` $\to$ **`50.0%`** | `14.6%` $\to$ `9.2%` $\to$ **`31.3%`** |
+| `pytest-dev/pytest` | 17 | `5.9%` $\to$ `29.4%` $\to$ **`41.2%`** | `100.0%` $\to$ `100.0%` $\to$ **`94.1%`** | `5.9%` $\to$ `29.4%` $\to$ **`35.3%`** | `19.7%` $\to$ `20.6%` $\to$ **`21.8%`** |
+| `scikit-learn/scikit-learn` | 23 | `39.1%` $\to$ `56.5%` $\to$ **`78.3%`** | `82.6%` $\to$ `87.0%` $\to$ **`95.7%`** | `26.1%` $\to$ `43.5%` $\to$ **`65.2%`** | `16.0%` $\to$ `21.0%` $\to$ **`19.1%`** |
+| `sphinx-doc/sphinx` | 16 | `31.2%` $\to$ `18.8%` $\to$ **`25.0%`** | `75.0%` $\to$ `100.0%` $\to$ **`100.0%`** | `12.5%` $\to$ `18.8%` $\to$ **`25.0%`** | `26.0%` $\to$ `26.4%` $\to$ **`24.0%`** |
+| `sympy/sympy` | 77 | `39.0%` $\to$ `35.1%` $\to$ **`40.3%`** | `87.0%` $\to$ `93.5%` $\to$ **`94.8%`** | `35.1%` $\to$ `27.3%` $\to$ **`33.8%`** | `19.4%` $\to$ `24.6%` $\to$ **`26.9%`** |
+| **Overall (`300` Instances)** | **300** | `35.3%` $\to$ `40.3%` $\to$ **`45.0%`** | `86.0%` $\to$ `93.7%` $\to$ **`95.3%`** | `29.3%` $\to$ `34.7%` $\to$ **`37.7%`** | `22.9%` $\to$ `26.0%` $\to$ **`25.7%`** |
+
