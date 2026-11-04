@@ -1123,6 +1123,8 @@ type GateEditCard struct {
 	ASTNeighborhood  []string `json:"ast_neighborhood,omitempty"`
 	ASTRibbon        string   `json:"ast_ribbon,omitempty"`
 	TrajectoryRibbon string   `json:"trajectory_ribbon,omitempty"`
+	VLNHint          string   `json:"vln_hint,omitempty"`
+	CompactMode      bool     `json:"compact_mode,omitempty"`
 	UnifiedDiffMode  bool     `json:"unified_diff_mode,omitempty"`
 	TokenBudget      int      `json:"token_budget,omitempty"`
 }
@@ -1230,7 +1232,11 @@ func FormatASTRibbonFromStrings(rootName string, items []string, maxTokens int) 
 
 // FormatPrompt constructs system and user prompts bounded strictly below 300 tokens (or c.TokenBudget when set).
 func (c *GateEditCard) FormatPrompt() (systemPrompt, userPrompt string, err error) {
-	systemPrompt = "You are OmniCoder GateEdit. Synthesize minimal search/replace edit blocks to fulfill instruction. Maintain existing signatures. Output strictly JSON: {\"file_path\":\"...\",\"edit_blocks\":[{\"search_text\":\"...\",\"replace_text\":\"...\"}],\"explanation\":\"...\"}"
+	if c.CompactMode {
+		systemPrompt = "[OC:EDIT] Output JSON: {\"file_path\":\"...\",\"edit_blocks\":[{\"search_text\":\"...\",\"replace_text\":\"...\"}]}"
+	} else {
+		systemPrompt = "You are OmniCoder GateEdit. Synthesize minimal search/replace edit blocks to fulfill instruction. Maintain existing signatures. Output strictly JSON: {\"file_path\":\"...\",\"edit_blocks\":[{\"search_text\":\"...\",\"replace_text\":\"...\"}],\"explanation\":\"...\"}"
+	}
 
 	maxTotalBudget := MaxCardTokenBudget // 300
 	if c.TokenBudget > 0 {
@@ -1362,6 +1368,13 @@ func (c *GateEditCard) FormatPrompt() (systemPrompt, userPrompt string, err erro
 	var sb strings.Builder
 	sb.WriteString(fileHeader)
 	sb.WriteString(instHeader)
+	if strings.TrimSpace(c.VLNHint) != "" {
+		vlnText := strings.TrimSpace(c.VLNHint)
+		if EstimateTokens(vlnText) > 45 {
+			vlnText = clampTextToBudget("VLN: ", vlnText, 45)
+		}
+		sb.WriteString("VLN: " + vlnText + "\n")
+	}
 	if c.TrajectoryRibbon != "" {
 		trajText := c.TrajectoryRibbon
 		if EstimateTokens(trajText) > 40 {
@@ -1447,6 +1460,8 @@ type GateHealCard struct {
 	Command          string `json:"command"`
 	ErrorCode        string `json:"error_code,omitempty"`
 	IssueContext     string `json:"issue_context,omitempty"`
+	VLNHint          string `json:"vln_hint,omitempty"`
+	CompactMode      bool   `json:"compact_mode,omitempty"`
 	PriorTurnPatch   string `json:"prior_turn_patch,omitempty"`
 	PriorTurnOutcome string `json:"prior_turn_outcome,omitempty"`
 	TokenBudget      int    `json:"token_budget,omitempty"`
@@ -1460,6 +1475,41 @@ type HealDecision struct {
 	RootCause     string          `json:"root_cause,omitempty"`
 }
 
+// stripCompactSnippetLineNumbers strips line-number prefixes (e.g. "  12: " or "> 42: ")
+// when formatting compact micro-cards so E2B copies exact source lines into search_text.
+func stripCompactSnippetLineNumbers(s string) string {
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	for _, ln := range lines {
+		trimmed := strings.TrimLeft(ln, " \t")
+		if strings.HasPrefix(trimmed, "=== ") || strings.HasPrefix(trimmed, "# --- ") {
+			continue
+		}
+		rest := trimmed
+		if strings.HasPrefix(rest, ">") {
+			rest = strings.TrimLeft(rest[1:], " \t")
+		}
+		digits := 0
+		for digits < len(rest) && rest[digits] >= '0' && rest[digits] <= '9' {
+			digits++
+		}
+		if digits > 0 && digits <= 6 && len(rest) > digits && rest[digits] == ':' {
+			afterColon := rest[digits+1:]
+			if strings.HasPrefix(afterColon, " ") {
+				afterColon = afterColon[1:]
+			}
+			out = append(out, afterColon)
+		} else {
+			out = append(out, ln)
+		}
+	}
+	res := strings.Trim(strings.Join(out, "\n"), "\n")
+	if len(res) > 1500 {
+		res = res[:1500]
+	}
+	return res
+}
+
 // FormatPrompt constructs system and user prompts bounded strictly below the token budget.
 func (c *GateHealCard) FormatPrompt() (systemPrompt, userPrompt string, err error) {
 	budget := MaxCardTokenBudget
@@ -1467,7 +1517,9 @@ func (c *GateHealCard) FormatPrompt() (systemPrompt, userPrompt string, err erro
 		budget = c.TokenBudget
 	}
 
-	if budget <= 300 {
+	if c.CompactMode {
+		systemPrompt = "[OC:HEAL] Output minimal fix JSON: {\"root_cause\":\"...\",\"file_path\":\"...\",\"edit_blocks\":[{\"search_text\":\"...\",\"replace_text\":\"...\"}],\"repair_summary\":\"...\"}"
+	} else if budget <= 300 {
 		systemPrompt = "You are OmniCoder GateHeal. Output minimal search/replace JSON: {\"file_path\":\"...\",\"edit_blocks\":[{\"search_text\":\"...\",\"replace_text\":\"...\"}],\"repair_summary\":\"...\"}"
 	} else {
 		systemPrompt = "You are OmniCoder GateHeal. Analyze the test failure, error diagnostic, and context. Synthesize surgical, minimal search/replace edit blocks to fix the bug. CRITICAL RULES:\n1. 'search_text' must be MINIMAL: include ONLY the specific 3 to 10 consecutive lines being modified, plus 1 line of unchanged context. NEVER reproduce the whole function or class.\n2. 'replace_text' must contain the complete, working production code replacement. NEVER output placeholder comments, 'pass', or ellipses.\n3. Output strictly valid JSON: {\"root_cause\":\"1-sentence root cause analysis\",\"file_path\":\"...\",\"edit_blocks\":[{\"file_path\":\"...\",\"search_text\":\"...\",\"replace_text\":\"...\"}],\"repair_summary\":\"...\"}."
@@ -1514,15 +1566,27 @@ func (c *GateHealCard) FormatPrompt() (systemPrompt, userPrompt string, err erro
 		cleanErr = cleanErr[:maxErrLen-3] + "..."
 	}
 	sb.WriteString(fmt.Sprintf("Cmd: %s\nError in `%s:%d`: %s\n", cleanCmd, c.FilePath, c.ErrorLine, cleanErr))
+	if strings.TrimSpace(c.VLNHint) != "" {
+		vlnText := strings.TrimSpace(c.VLNHint)
+		if len(vlnText) > 220 {
+			vlnText = vlnText[:217] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("VLN: %s\n", vlnText))
+	}
 	if c.IssueContext != "" {
 		cleanIssue := strings.TrimSpace(c.IssueContext)
-		if len(cleanIssue) > maxIssueLen {
+		if c.CompactMode {
+			cleanIssue = strings.Join(strings.Fields(cleanIssue), " ")
+			if len(cleanIssue) > 260 {
+				cleanIssue = cleanIssue[:260]
+			}
+		} else if len(cleanIssue) > maxIssueLen {
 			cleanIssue = cleanIssue[:maxIssueLen-3] + "..."
 		}
 		sb.WriteString(fmt.Sprintf("Issue: %s\n", cleanIssue))
 	}
 
-	if c.PriorTurnPatch != "" {
+	if c.PriorTurnPatch != "" && !c.CompactMode {
 		cleanPatch := strings.TrimSpace(c.PriorTurnPatch)
 		if len(cleanPatch) > 1200 {
 			cleanPatch = cleanPatch[:1197] + "..."
@@ -1541,13 +1605,17 @@ func (c *GateHealCard) FormatPrompt() (systemPrompt, userPrompt string, err erro
 		}
 	}
 
+	snippetText := c.Snippet5Lines
+	if c.CompactMode {
+		snippetText = stripCompactSnippetLineNumbers(snippetText)
+	}
 	base := systemPrompt + " " + sb.String()
-	clampedSnippet := clampTextToBudget(base+"Context:\n", c.Snippet5Lines, budget)
+	clampedSnippet := clampTextToBudget(base+"Context:\n", snippetText, budget)
 	sb.WriteString("Context:\n" + clampedSnippet)
 
 	userPrompt = sb.String()
 	if err := ValidateTokenBudget(systemPrompt, userPrompt, budget); err != nil {
-		userPrompt = clampTextToBudget(systemPrompt+" Cmd: "+cleanCmd+"\nErr: "+cleanErr+"\n", c.Snippet5Lines, budget)
+		userPrompt = clampTextToBudget(systemPrompt+" Cmd: "+cleanCmd+"\nErr: "+cleanErr+"\n", snippetText, budget)
 	}
 	return systemPrompt, userPrompt, nil
 }
@@ -1605,6 +1673,8 @@ type GateReproducerCard struct {
 	CausalFiles      []string `json:"causal_files,omitempty"`
 	Language         string   `json:"language,omitempty"`
 	TracebackSnippet string   `json:"traceback_snippet,omitempty"`
+	VLNHint          string   `json:"vln_hint,omitempty"`
+	CompactMode      bool     `json:"compact_mode,omitempty"`
 	TokenBudget      int      `json:"token_budget,omitempty"`
 }
 
@@ -1622,7 +1692,11 @@ func (c *GateReproducerCard) FormatPrompt() (systemPrompt, userPrompt string, er
 	if c.TokenBudget > 0 {
 		budget = c.TokenBudget
 	}
-	systemPrompt = "You are OmniCoder GateReproducer. Synthesize a minimal, standalone reproducer script (e.g. reproduce_issue.py). Protocol: exit 1 if bug present, exit 0 if resolved. Must execute <2.5s without network. Output strictly JSON: {\"script_name\":\"reproduce_issue.py\",\"script_content\":\"...\",\"explanation\":\"...\"}"
+	if c.CompactMode {
+		systemPrompt = "[OC:REPRO] Output standalone Python reproducer JSON (exit 1 on bug, exit 0 when fixed): {\"script_name\":\"reproduce_issue.py\",\"script_content\":\"...\",\"explanation\":\"...\"}"
+	} else {
+		systemPrompt = "You are OmniCoder GateReproducer. Synthesize a minimal, standalone reproducer script (e.g. reproduce_issue.py). Protocol: exit 1 if bug present, exit 0 if resolved. Must execute <2.5s without network. Output strictly JSON: {\"script_name\":\"reproduce_issue.py\",\"script_content\":\"...\",\"explanation\":\"...\"}"
+	}
 
 	var sb strings.Builder
 	cleanLang := strings.TrimSpace(c.Language)
@@ -1634,8 +1708,15 @@ func (c *GateReproducerCard) FormatPrompt() (systemPrompt, userPrompt string, er
 	if len(c.CausalFiles) > 0 {
 		sb.WriteString("Files: " + strings.Join(c.CausalFiles, ", ") + "\n")
 	}
+	if strings.TrimSpace(c.VLNHint) != "" {
+		vlnText := strings.TrimSpace(c.VLNHint)
+		if len(vlnText) > 200 {
+			vlnText = vlnText[:197] + "..."
+		}
+		sb.WriteString("VLN: " + vlnText + "\n")
+	}
 
-	if c.RepoSummary != "" && budget > 300 {
+	if c.RepoSummary != "" && budget > 300 && !c.CompactMode {
 		cleanRepo := strings.TrimSpace(c.RepoSummary)
 		if len(cleanRepo) > 1200 {
 			cleanRepo = cleanRepo[:1197] + "..."
@@ -1646,22 +1727,125 @@ func (c *GateReproducerCard) FormatPrompt() (systemPrompt, userPrompt string, er
 	if c.TracebackSnippet != "" {
 		cleanTrace := strings.TrimSpace(c.TracebackSnippet)
 		maxTrace := 80
-		if budget > 300 {
+		if c.CompactMode {
+			cleanTrace = strings.Join(strings.Fields(cleanTrace), " ")
+			maxTrace = 140
+		} else if budget > 300 {
 			maxTrace = 600
 		}
 		if len(cleanTrace) > maxTrace {
 			cleanTrace = cleanTrace[:maxTrace-3] + "..."
 		}
-		sb.WriteString("Traceback: " + cleanTrace + "\n")
+		if c.CompactMode {
+			sb.WriteString("Trace: " + cleanTrace + "\n")
+		} else {
+			sb.WriteString("Traceback: " + cleanTrace + "\n")
+		}
 	}
 
+	issueToClamp := c.IssueText
+	if c.CompactMode {
+		issueToClamp = strings.Join(strings.Fields(issueToClamp), " ")
+		if len(issueToClamp) > 240 {
+			issueToClamp = issueToClamp[:240]
+		}
+	}
 	base := systemPrompt + " " + sb.String()
-	clampedIssue := clampTextToBudget(base+"Issue: ", c.IssueText, budget-10)
+	clampedIssue := clampTextToBudget(base+"Issue: ", issueToClamp, budget-10)
 	sb.WriteString("Issue: " + clampedIssue)
 
 	userPrompt = sb.String()
 	if err := ValidateTokenBudget(systemPrompt, userPrompt, budget); err != nil {
 		userPrompt = clampTextToBudget(systemPrompt+" Issue: ", c.IssueText, budget-10)
+	}
+	return systemPrompt, userPrompt, nil
+}
+
+// ============================================================================
+// Card 6: GateLocate (Co-Tuned Top-10 Fault Localizer Reranker)
+// ============================================================================
+
+// GateLocateCandidate represents a scored AST/BM25/VLN fault candidate for E2B reranking.
+type GateLocateCandidate struct {
+	Rank      int     `json:"rank"`
+	File      string  `json:"file"`
+	Symbol    string  `json:"symbol"`
+	LineRange [2]int  `json:"line_range"`
+	Signature string  `json:"signature,omitempty"`
+	Score     float64 `json:"score"`
+}
+
+// GateLocateCard packages Top-10 localizer candidates and VLN hint into a <300-token reranking card.
+type GateLocateCard struct {
+	IssueSummary string                `json:"issue_summary"`
+	Traceback    string                `json:"traceback,omitempty"`
+	VLNHint      string                `json:"vln_hint,omitempty"`
+	Candidates   []GateLocateCandidate `json:"candidates"`
+	CompactMode  bool                  `json:"compact_mode,omitempty"`
+	TokenBudget  int                   `json:"token_budget,omitempty"`
+}
+
+// LocateDecision captures the neural reranked primary fault target and supporting files.
+type LocateDecision struct {
+	PrimaryFile     string   `json:"primary_file"`
+	CausalSymbol    string   `json:"causal_symbol"`
+	SupportingFiles []string `json:"supporting_files,omitempty"`
+}
+
+// FormatPrompt constructs system and user prompts bounded strictly below 300 tokens (or c.TokenBudget when set).
+func (c *GateLocateCard) FormatPrompt() (systemPrompt, userPrompt string, err error) {
+	budget := MaxCardTokenBudget
+	if c.TokenBudget > 0 {
+		budget = c.TokenBudget
+	}
+	if c.CompactMode {
+		systemPrompt = "[OC:LOCATE] Output JSON: {\"primary_file\":\"...\",\"causal_symbol\":\"...\",\"supporting_files\":[\"...\"]}"
+	} else {
+		systemPrompt = "You are OmniCoder GateLocate. Rerank fault candidates for the issue and select the exact causal file and symbol. Output strictly JSON: {\"primary_file\":\"...\",\"causal_symbol\":\"...\",\"supporting_files\":[\"...\"]}"
+	}
+
+	var sb strings.Builder
+	if strings.TrimSpace(c.VLNHint) != "" {
+		vlnText := strings.TrimSpace(c.VLNHint)
+		if len(vlnText) > 160 {
+			vlnText = vlnText[:157] + "..."
+		}
+		sb.WriteString("VLN: " + vlnText + "\n")
+	}
+	if strings.TrimSpace(c.Traceback) != "" {
+		tb := strings.TrimSpace(c.Traceback)
+		if len(tb) > 120 {
+			tb = tb[:117] + "..."
+		}
+		sb.WriteString("Trace: " + tb + "\n")
+	}
+	if len(c.Candidates) > 0 {
+		sb.WriteString("Candidates:\n")
+		maxCands := len(c.Candidates)
+		if maxCands > 10 {
+			maxCands = 10
+		}
+		for i := 0; i < maxCands; i++ {
+			cand := c.Candidates[i]
+			rank := cand.Rank
+			if rank <= 0 {
+				rank = i + 1
+			}
+			line := fmt.Sprintf("%d. %s :: %s (L%d-%d, %.2f)\n", rank, cand.File, cand.Symbol, cand.LineRange[0], cand.LineRange[1], cand.Score)
+			if EstimateTokens(systemPrompt+" "+sb.String()+line) >= budget-30 {
+				break
+			}
+			sb.WriteString(line)
+		}
+	}
+
+	base := systemPrompt + " " + sb.String()
+	clampedIssue := clampTextToBudget(base+"Issue: ", c.IssueSummary, budget-8)
+	sb.WriteString("Issue: " + clampedIssue)
+
+	userPrompt = sb.String()
+	if err := ValidateTokenBudget(systemPrompt, userPrompt, budget); err != nil {
+		userPrompt = clampTextToBudget(systemPrompt+" Issue: ", c.IssueSummary, budget-8)
 	}
 	return systemPrompt, userPrompt, nil
 }
@@ -1676,10 +1860,12 @@ type GateEditDecision = EditDecision
 type GateHealDecision = HealDecision
 type GateFinalizeDecision = FinalizeDecision
 type GateReproducerDecision = ReproducerDecision
+type GateLocateDecision = LocateDecision
 
 // DecisionGate defines the micro-decision evaluation contracts.
 type DecisionGate interface {
 	DecideIntent(ctx context.Context, card GateIntentCard) (*IntentDecision, error)
+	DecideLocate(ctx context.Context, card GateLocateCard) (*LocateDecision, error)
 	DecideEdit(ctx context.Context, card GateEditCard) (*EditDecision, error)
 	DecideHeal(ctx context.Context, card GateHealCard) (*HealDecision, error)
 	DecideHealSpeculative(ctx context.Context, card GateHealCard, k int) ([]*HealDecision, error)
@@ -1688,6 +1874,7 @@ type DecisionGate interface {
 
 	// Convenience wrappers matching DecisionGate interface signatures
 	Intent(ctx context.Context, card GateIntentCard) (*GateIntentDecision, error)
+	Locate(ctx context.Context, card GateLocateCard) (*GateLocateDecision, error)
 	Edit(ctx context.Context, card GateEditCard) (*GateEditDecision, error)
 	Heal(ctx context.Context, card GateHealCard) (*GateHealDecision, error)
 	Finalize(ctx context.Context, card GateFinalizeCard) (*GateFinalizeDecision, error)
@@ -1781,6 +1968,9 @@ func (g *LLMDecisionGate) DecideEdit(ctx context.Context, card GateEditCard) (*E
 	if g.client == nil {
 		return nil, errors.New("llm: decision gate client is nil")
 	}
+	if IsCompactMicroCardModel(g.model) {
+		card.CompactMode = true
+	}
 
 	if card.TokenBudget == 0 && IsLargeContextModel(g.model) {
 		card.TokenBudget = 2800
@@ -1795,6 +1985,10 @@ func (g *LLMDecisionGate) DecideEdit(ctx context.Context, card GateEditCard) (*E
 	if SupportsJSONObjectFormat(g.model) {
 		respFmt = &ResponseFormat{Type: "json_object"}
 	}
+	maxToks := 2048
+	if IsCompactMicroCardModel(g.model) {
+		maxToks = 320
+	}
 	req := &ChatCompletionRequest{
 		Model: g.model,
 		Messages: []ChatMessage{
@@ -1802,7 +1996,7 @@ func (g *LLMDecisionGate) DecideEdit(ctx context.Context, card GateEditCard) (*E
 			{Role: "user", Content: userPrompt},
 		},
 		Temperature:     &temp,
-		MaxTokens:       2048,
+		MaxTokens:       maxToks,
 		ResponseFormat:  respFmt,
 	}
 
@@ -1879,6 +2073,9 @@ func (g *LLMDecisionGate) DecideHeal(ctx context.Context, card GateHealCard) (*H
 	if g.client == nil {
 		return nil, errors.New("llm: decision gate client is nil")
 	}
+	if IsCompactMicroCardModel(g.model) {
+		card.CompactMode = true
+	}
 
 	sysPrompt, userPrompt, err := card.FormatPrompt()
 	if err != nil {
@@ -1906,6 +2103,9 @@ func (g *LLMDecisionGate) DecideHeal(ctx context.Context, card GateHealCard) (*H
 		if maxTokens < 512 {
 			maxTokens = 512
 		}
+	}
+	if IsCompactMicroCardModel(g.model) {
+		maxTokens = 320
 	}
 
 	req := &ChatCompletionRequest{
@@ -1942,6 +2142,9 @@ func (g *LLMDecisionGate) DecideHealSpeculative(ctx context.Context, card GateHe
 	if g.client == nil {
 		return nil, errors.New("llm: decision gate client is nil")
 	}
+	if IsCompactMicroCardModel(g.model) {
+		card.CompactMode = true
+	}
 
 	sysPrompt, userPrompt, err := card.FormatPrompt()
 	if err != nil {
@@ -1970,6 +2173,9 @@ func (g *LLMDecisionGate) DecideHealSpeculative(ctx context.Context, card GateHe
 		if maxTokens < 512 {
 			maxTokens = 512
 		}
+	}
+	if IsCompactMicroCardModel(g.model) {
+		maxTokens = 320
 	}
 
 	kPrimary := k
@@ -2326,6 +2532,9 @@ func (g *LLMDecisionGate) DecideReproducer(ctx context.Context, card GateReprodu
 	if g.client == nil {
 		return nil, errors.New("llm: decision gate client is nil")
 	}
+	if IsCompactMicroCardModel(g.model) {
+		card.CompactMode = true
+	}
 
 	sysPrompt, userPrompt, err := card.FormatPrompt()
 	if err != nil {
@@ -2337,6 +2546,10 @@ func (g *LLMDecisionGate) DecideReproducer(ctx context.Context, card GateReprodu
 	if SupportsJSONObjectFormat(g.model) {
 		respFmt = &ResponseFormat{Type: "json_object"}
 	}
+	maxToks := 2048
+	if IsCompactMicroCardModel(g.model) {
+		maxToks = 320
+	}
 	req := &ChatCompletionRequest{
 		Model: g.model,
 		Messages: []ChatMessage{
@@ -2344,7 +2557,7 @@ func (g *LLMDecisionGate) DecideReproducer(ctx context.Context, card GateReprodu
 			{Role: "user", Content: userPrompt},
 		},
 		Temperature:     &temp,
-		MaxTokens:       2048,
+		MaxTokens:       maxToks,
 		ResponseFormat:  respFmt,
 	}
 
@@ -2374,6 +2587,55 @@ func (g *LLMDecisionGate) DecideReproducer(ctx context.Context, card GateReprodu
 
 func (g *LLMDecisionGate) Reproducer(ctx context.Context, card GateReproducerCard) (*GateReproducerDecision, error) {
 	return g.DecideReproducer(ctx, card)
+}
+
+// DecideLocate reranks Top-10 AST/BM25/VLN candidates using the GateLocateCard micro-card.
+func (g *LLMDecisionGate) DecideLocate(ctx context.Context, card GateLocateCard) (*LocateDecision, error) {
+	if g.client == nil {
+		return nil, errors.New("llm: decision gate client is nil")
+	}
+	if IsCompactMicroCardModel(g.model) {
+		card.CompactMode = true
+	}
+	sysPrompt, userPrompt, err := card.FormatPrompt()
+	if err != nil {
+		return nil, err
+	}
+
+	temp := 0.0
+	var respFmt *ResponseFormat
+	if SupportsJSONObjectFormat(g.model) {
+		respFmt = &ResponseFormat{Type: "json_object"}
+	}
+	req := &ChatCompletionRequest{
+		Model: g.model,
+		Messages: []ChatMessage{
+			{Role: "system", Content: sysPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		Temperature:    &temp,
+		MaxTokens:      256,
+		ResponseFormat: respFmt,
+	}
+
+	resp, err := g.client.Complete(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("llm: GateLocate completion error: %w", err)
+	}
+
+	var decision LocateDecision
+	if err := ExtractJSON(resp.Content(), &decision); err != nil {
+		return nil, fmt.Errorf("llm: GateLocate json extraction error: %w", err)
+	}
+	decision.PrimaryFile = filepath.ToSlash(strings.TrimSpace(decision.PrimaryFile))
+	for i := range decision.SupportingFiles {
+		decision.SupportingFiles[i] = filepath.ToSlash(strings.TrimSpace(decision.SupportingFiles[i]))
+	}
+	return &decision, nil
+}
+
+func (g *LLMDecisionGate) Locate(ctx context.Context, card GateLocateCard) (*GateLocateDecision, error) {
+	return g.DecideLocate(ctx, card)
 }
 
 // ============================================================================

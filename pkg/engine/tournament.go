@@ -42,18 +42,27 @@ type CandidateProfile struct {
 	Name        string  `json:"name"`
 	Temperature float64 `json:"temperature"`
 	Strategy    string  `json:"strategy"`
+	WindowRole  string  `json:"window_role,omitempty"`
 }
 
 // DefaultCandidateProfiles specifies the canonical multi-temperature distribution.
 // - Candidate Alpha (T=0.1): Conservative minimal patch (exact bug fix).
 // - Candidate Beta  (T=0.4): Structural refactor (handling broader type checks/edge cases).
 // - Candidate Gamma (T=0.7): Alternative AST approach (defensive guard at caller level).
+// - Candidates Zeta..Mu (K=8..12): RTX 3060 speculative multi-window tournament profiles.
 var DefaultCandidateProfiles = []CandidateProfile{
-	{Name: "candidate-alpha", Temperature: 0.1, Strategy: "conservative minimal patch"},
-	{Name: "candidate-beta", Temperature: 0.4, Strategy: "structural refactor"},
-	{Name: "candidate-gamma", Temperature: 0.7, Strategy: "alternative AST defensive guard"},
-	{Name: "candidate-delta", Temperature: 0.8, Strategy: "exploratory alternative"},
-	{Name: "candidate-epsilon", Temperature: 0.9, Strategy: "diversity branch"},
+	{Name: "candidate-alpha", Temperature: 0.1, Strategy: "conservative minimal patch", WindowRole: "primary_symbol"},
+	{Name: "candidate-beta", Temperature: 0.4, Strategy: "structural refactor", WindowRole: "primary_symbol"},
+	{Name: "candidate-gamma", Temperature: 0.7, Strategy: "alternative AST defensive guard", WindowRole: "caller_guard"},
+	{Name: "candidate-delta", Temperature: 0.8, Strategy: "exploratory alternative", WindowRole: "primary_symbol"},
+	{Name: "candidate-epsilon", Temperature: 0.9, Strategy: "diversity branch", WindowRole: "supporting_file"},
+	{Name: "candidate-zeta", Temperature: 0.0, Strategy: "greedy VLN invariant repair", WindowRole: "primary_symbol"},
+	{Name: "candidate-eta", Temperature: 0.25, Strategy: "caller boundary validation", WindowRole: "caller_guard"},
+	{Name: "candidate-theta", Temperature: 0.35, Strategy: "class init and state invariant", WindowRole: "class_init_state"},
+	{Name: "candidate-iota", Temperature: 0.50, Strategy: "mirror twin synchronized edit", WindowRole: "mirror_twin"},
+	{Name: "candidate-kappa", Temperature: 0.60, Strategy: "type coercion and fallback guard", WindowRole: "primary_symbol"},
+	{Name: "candidate-lambda", Temperature: 0.75, Strategy: "cross-file helper repair", WindowRole: "supporting_file"},
+	{Name: "candidate-mu", Temperature: 0.85, Strategy: "high-temperature structural synthesis", WindowRole: "primary_symbol"},
 }
 
 // Sandbox represents an isolated execution environment for a tournament candidate.
@@ -592,6 +601,31 @@ func (tm *TournamentManager) EvaluateCandidate(sb Sandbox, reproducer string) Ca
 	}
 
 	return score
+}
+
+// EvaluateCandidatesParallel evaluates multiple candidate sandboxes concurrently with bounded worker goroutines.
+func (tm *TournamentManager) EvaluateCandidatesParallel(sandboxes []Sandbox, reproducer string, maxConcurrency int) []CandidateScore {
+	if len(sandboxes) == 0 {
+		return nil
+	}
+	if maxConcurrency <= 0 {
+		maxConcurrency = 4
+	}
+	scores := make([]CandidateScore, len(sandboxes))
+	sem := make(chan struct{}, maxConcurrency)
+	var wg sync.WaitGroup
+
+	for i, sb := range sandboxes {
+		wg.Add(1)
+		go func(idx int, candSB Sandbox) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			scores[idx] = tm.EvaluateCandidate(candSB, reproducer)
+		}(i, sb)
+	}
+	wg.Wait()
+	return scores
 }
 
 // SelectWinner determines the Pareto-optimal winning candidate from candidate scores.

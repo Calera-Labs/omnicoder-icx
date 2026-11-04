@@ -212,3 +212,64 @@ func TestGateEditCard_InstructionAndRibbon_PromptIntegrity(t *testing.T) {
 	}
 }
 
+func TestGateLocateCard_And_CompactMicroCards(t *testing.T) {
+	locCard := GateLocateCard{
+		IssueSummary: "QuerySet.union() with values_list() crashes when ordering by annotated field",
+		Traceback:    "django/db/models/sql/compiler.py:612 in get_order_by",
+		VLNHint:      "[django.db.sql.compiler.order_by] Guard col_cnt bounds in get_combinator_sql",
+		Candidates: []GateLocateCandidate{
+			{File: "django/db/models/sql/compiler.py", Symbol: "get_order_by", LineRange: [2]int{590, 645}, Score: 42.5},
+			{File: "django/db/models/query.py", Symbol: "union", LineRange: [2]int{1120, 1145}, Score: 21.0},
+		},
+		CompactMode: true,
+	}
+	sysP, userP, err := locCard.FormatPrompt()
+	if err != nil {
+		t.Fatalf("GateLocateCard.FormatPrompt failed: %v", err)
+	}
+	if !strings.HasPrefix(sysP, "[OC:LOCATE]") {
+		t.Fatalf("expected [OC:LOCATE] header, got: %s", sysP)
+	}
+	if !strings.Contains(userP, "VLN:") || !strings.Contains(userP, "compiler.py") {
+		t.Fatalf("expected VLN hint and candidate in user prompt, got:\n%s", userP)
+	}
+
+	editCard := GateEditCard{
+		FilePath:       "django/db/models/sql/compiler.py",
+		Instruction:    "Guard combinator order_by index bounds",
+		ContextSnippet: "def get_order_by(self):\n    return []",
+		VLNHint:        "[django.db.sql.compiler.order_by] Guard col_cnt bounds",
+		CompactMode:    true,
+	}
+	eSys, eUser, err := editCard.FormatPrompt()
+	if err != nil {
+		t.Fatalf("GateEditCard.FormatPrompt failed: %v", err)
+	}
+	if !strings.HasPrefix(eSys, "[OC:EDIT]") {
+		t.Fatalf("expected [OC:EDIT] header, got: %s", eSys)
+	}
+	if !strings.Contains(eUser, "VLN:") {
+		t.Fatalf("expected VLN hint in edit user prompt, got:\n%s", eUser)
+	}
+
+	healCard := GateHealCard{
+		FilePath:      "django/db/models/sql/compiler.py",
+		ErrorLine:     612,
+		ErrorMessage:  "IndexError: tuple index out of range",
+		Snippet5Lines: "def get_order_by(self):\n    return []",
+		VLNHint:       "[django.db.sql.compiler.order_by] Guard col_cnt bounds",
+		CompactMode:   true,
+	}
+	hSys, hUser, err := healCard.FormatPrompt()
+	if err != nil {
+		t.Fatalf("GateHealCard.FormatPrompt failed: %v", err)
+	}
+	if !strings.HasPrefix(hSys, "[OC:HEAL]") {
+		t.Fatalf("expected [OC:HEAL] header, got: %s", hSys)
+	}
+	if !strings.Contains(hUser, "VLN:") {
+		t.Fatalf("expected VLN: in heal user prompt, got:\n%s", hUser)
+	}
+}
+
+

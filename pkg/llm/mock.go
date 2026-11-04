@@ -665,6 +665,40 @@ func (m *MockDecisionGate) Reproducer(ctx context.Context, card GateReproducerCa
 	return m.DecideReproducer(ctx, card)
 }
 
+// DecideLocate reranks Top-10 candidates in MockDecisionGate by selecting the highest-scoring candidate.
+func (m *MockDecisionGate) DecideLocate(ctx context.Context, card GateLocateCard) (*LocateDecision, error) {
+	if err := m.handleTimeout(ctx); err != nil {
+		return nil, err
+	}
+	if err := m.checkFailAttempts(); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	if m.InjectError != nil {
+		err := m.InjectError
+		m.mu.Unlock()
+		return nil, err
+	}
+	m.mu.Unlock()
+
+	dec := &LocateDecision{}
+	if len(card.Candidates) > 0 {
+		dec.PrimaryFile = filepath.ToSlash(card.Candidates[0].File)
+		dec.CausalSymbol = card.Candidates[0].Symbol
+		for i := 1; i < len(card.Candidates) && len(dec.SupportingFiles) < 3; i++ {
+			sf := filepath.ToSlash(card.Candidates[i].File)
+			if sf != dec.PrimaryFile {
+				dec.SupportingFiles = append(dec.SupportingFiles, sf)
+			}
+		}
+	}
+	return dec, nil
+}
+
+func (m *MockDecisionGate) Locate(ctx context.Context, card GateLocateCard) (*GateLocateDecision, error) {
+	return m.DecideLocate(ctx, card)
+}
+
 
 // ============================================================================
 // Complementary Wire-Level Mock: MockLLMClient

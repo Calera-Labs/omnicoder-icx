@@ -32,6 +32,7 @@ const (
 	ModelGemini36Flash     = "gemini-3.6-flash"      // Speed and intelligence balance
 	ModelGemini35Flash     = "gemini-3.5-flash"      // Flagship 3.5 coding & action model
 	ModelGemini35FlashLite = "gemini-3.5-flash-lite" // High-throughput, cost-effective baseline
+	ModelOmniCoderGemmaE2B = "google/gemma-4-e2b"    // Co-tuned RTX 3060 (<2.5GB VRAM) micro-card model
 
 	LatestFlagshipModel = ModelGemini38Flash
 
@@ -44,6 +45,13 @@ const (
 func IsGeminiModel(model string) bool {
 	m := strings.ToLower(strings.TrimSpace(model))
 	return strings.Contains(m, "gemini")
+}
+
+// IsCompactMicroCardModel reports whether the given model uses compact [OC:*] structural headers
+// co-tuned for Gemma 4 E2B on consumer GPUs (e.g. RTX 3060).
+func IsCompactMicroCardModel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(m, "gemma-4-e2b") || strings.Contains(m, "omnicoder-gemma-e2b") || strings.Contains(m, "gemma-e2b")
 }
 
 // IsLargeContextModel reports whether the given model name indicates a 32k+ context model
