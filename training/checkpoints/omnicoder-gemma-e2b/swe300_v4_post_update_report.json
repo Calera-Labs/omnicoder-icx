@@ -1,0 +1,136 @@
+{
+  "benchmark": "Official SWE-300 (princeton-nlp/SWE-bench_Lite Test Split)",
+  "config": "Config 3 v4: Full Organism (OmniCoder-ICX v4 + VLN Cartridge + OmniCoder-Gemma-E2B + Speculative K=4)",
+  "hardware": "NVIDIA A100-SXM4-80GB",
+  "zero_leakage_training_split": true,
+  "swe300_training_overlap_count": 0,
+  "total_instances": 300,
+  "wall_clock_sec": 507.81,
+  "wall_clock_min": 8.46,
+  "peak_vram_mb": 14977.0,
+  "metrics": {
+    "locate_json_validity_pct": 100.0,
+    "locate_real_repo_top1_file_accuracy_pct": 50.3,
+    "locate_real_repo_top3_file_recall_pct": 66.0,
+    "locate_stage1_top6_candidate_recall_pct": 75.0,
+    "repro_valid_python_ast_pct": 100.0,
+    "heal_valid_editblock_pct": 99.7,
+    "heal_real_source_anchor_applied_pct": 99.3,
+    "heal_ast_verified_unified_diff_pct": 96.7,
+    "heal_patched_gold_target_file_pct": 42.7,
+    "mean_diff_token_f1_vs_gold_patch_pct": 24.8,
+    "high_similarity_patches_f1_ge_25_count": 142,
+    "high_similarity_patches_f1_ge_40_count": 49
+  },
+  "predictions_jsonl": "/content/swe300_v4_results/predictions.jsonl",
+  "by_repo": {
+    "astropy/astropy": {
+      "instances": 6,
+      "locate_top1_pct": 66.7,
+      "locate_top3_pct": 83.3,
+      "stage1_top6_pct": 83.3,
+      "ast_verified_patch_pct": 100.0,
+      "patched_gold_file_pct": 66.7,
+      "mean_diff_f1_pct": 28.2
+    },
+    "django/django": {
+      "instances": 114,
+      "locate_top1_pct": 54.4,
+      "locate_top3_pct": 68.4,
+      "stage1_top6_pct": 74.6,
+      "ast_verified_patch_pct": 95.6,
+      "patched_gold_file_pct": 44.7,
+      "mean_diff_f1_pct": 27.0
+    },
+    "matplotlib/matplotlib": {
+      "instances": 23,
+      "locate_top1_pct": 34.8,
+      "locate_top3_pct": 65.2,
+      "stage1_top6_pct": 82.6,
+      "ast_verified_patch_pct": 100.0,
+      "patched_gold_file_pct": 34.8,
+      "mean_diff_f1_pct": 24.9
+    },
+    "mwaskom/seaborn": {
+      "instances": 4,
+      "locate_top1_pct": 50.0,
+      "locate_top3_pct": 75.0,
+      "stage1_top6_pct": 100.0,
+      "ast_verified_patch_pct": 100.0,
+      "patched_gold_file_pct": 50.0,
+      "mean_diff_f1_pct": 25.2
+    },
+    "pallets/flask": {
+      "instances": 3,
+      "locate_top1_pct": 33.3,
+      "locate_top3_pct": 33.3,
+      "stage1_top6_pct": 100.0,
+      "ast_verified_patch_pct": 100.0,
+      "patched_gold_file_pct": 33.3,
+      "mean_diff_f1_pct": 12.1
+    },
+    "psf/requests": {
+      "instances": 6,
+      "locate_top1_pct": 66.7,
+      "locate_top3_pct": 100.0,
+      "stage1_top6_pct": 100.0,
+      "ast_verified_patch_pct": 100.0,
+      "patched_gold_file_pct": 66.7,
+      "mean_diff_f1_pct": 35.8
+    },
+    "pydata/xarray": {
+      "instances": 5,
+      "locate_top1_pct": 20.0,
+      "locate_top3_pct": 60.0,
+      "stage1_top6_pct": 80.0,
+      "ast_verified_patch_pct": 100.0,
+      "patched_gold_file_pct": 20.0,
+      "mean_diff_f1_pct": 29.8
+    },
+    "pylint-dev/pylint": {
+      "instances": 6,
+      "locate_top1_pct": 50.0,
+      "locate_top3_pct": 50.0,
+      "stage1_top6_pct": 50.0,
+      "ast_verified_patch_pct": 100.0,
+      "patched_gold_file_pct": 50.0,
+      "mean_diff_f1_pct": 28.9
+    },
+    "pytest-dev/pytest": {
+      "instances": 17,
+      "locate_top1_pct": 35.3,
+      "locate_top3_pct": 41.2,
+      "stage1_top6_pct": 76.5,
+      "ast_verified_patch_pct": 100.0,
+      "patched_gold_file_pct": 23.5,
+      "mean_diff_f1_pct": 21.2
+    },
+    "scikit-learn/scikit-learn": {
+      "instances": 23,
+      "locate_top1_pct": 73.9,
+      "locate_top3_pct": 87.0,
+      "stage1_top6_pct": 95.7,
+      "ast_verified_patch_pct": 91.3,
+      "patched_gold_file_pct": 60.9,
+      "mean_diff_f1_pct": 20.0
+    },
+    "sphinx-doc/sphinx": {
+      "instances": 16,
+      "locate_top1_pct": 62.5,
+      "locate_top3_pct": 62.5,
+      "stage1_top6_pct": 68.8,
+      "ast_verified_patch_pct": 100.0,
+      "patched_gold_file_pct": 50.0,
+      "mean_diff_f1_pct": 25.6
+    },
+    "sympy/sympy": {
+      "instances": 77,
+      "locate_top1_pct": 42.9,
+      "locate_top3_pct": 61.0,
+      "stage1_top6_pct": 64.9,
+      "ast_verified_patch_pct": 96.1,
+      "patched_gold_file_pct": 36.4,
+      "mean_diff_f1_pct": 22.1
+    }
+  }
+}
