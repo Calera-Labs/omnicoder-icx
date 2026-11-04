@@ -63,12 +63,13 @@ from build_cotune_dataset import (
 
 
 class BatchJSONStoppingCriteria(StoppingCriteria):
-    """Halts token generation immediately when all sequences in the batch close their root JSON object."""
+    """Vectorized stopping criteria that only decodes active sequences every 8 steps."""
 
-    def __init__(self, tokenizer, prompt_len: int):
+    def __init__(self, tokenizer, prompt_len: int, batch_size: int):
         super().__init__()
         self.tokenizer = tokenizer
         self.prompt_len = prompt_len
+        self.done_mask = [False] * batch_size
 
     @staticmethod
     def _is_balanced_json(text: str) -> bool:
@@ -99,14 +100,17 @@ class BatchJSONStoppingCriteria(StoppingCriteria):
 
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
         gen_len = input_ids.shape[1] - self.prompt_len
-        if gen_len < 12 or gen_len % 4 != 0:
+        if gen_len < 16 or gen_len % 8 != 0:
             return False
-        balanced = 0
-        for row in input_ids:
-            txt = self.tokenizer.decode(row[self.prompt_len :], skip_special_tokens=True)
+        active_indices = [i for i, d in enumerate(self.done_mask) if not d]
+        if not active_indices:
+            return True
+        active_Slice = input_ids[active_indices, self.prompt_len :]
+        decoded = self.tokenizer.batch_decode(active_Slice, skip_special_tokens=True)
+        for idx, txt in zip(active_indices, decoded):
             if self._is_balanced_json(txt):
-                balanced += 1
-        return balanced == input_ids.shape[0]
+                self.done_mask[idx] = True
+        return all(self.done_mask)
 
 
 def trim_to_first_json_object(text: str) -> str:
@@ -410,11 +414,11 @@ def find_best_symbol_and_window(
                     best_exec_start = i + 1
                     best_end = min(len(lines), i + 30)
 
-    # Score all 6-line executable focal windows across [best_exec_start, best_end]
-    win_len = 6
+    # Score all 12-line executable focal windows across [best_exec_start, best_end] (Law 2: 66.0% AST -> 12-line focal window)
+    win_len = 12
     scored_windows: list[tuple[float, int]] = []
     max_start = max(best_exec_start, best_end - win_len + 1)
-    for ws in range(best_exec_start, min(max_start + 1, best_exec_start + 120)):
+    for ws in range(best_exec_start, min(max_start + 1, best_exec_start + 140)):
         cand_lines = lines[ws - 1 : min(len(lines), ws - 1 + win_len)]
         cand_txt = "\n".join(cand_lines).lower()
         if not cand_txt.strip():
@@ -425,19 +429,19 @@ def find_best_symbol_and_window(
                 sc += 60.0
         for ql in q_lower:
             if ql in cand_txt:
-                sc += 5.0
+                sc += 5.5
         for pw in prob_words:
             if pw in cand_txt:
                 sc += 1.5
         if any(k in cand_txt for k in ("return ", "raise ", "if ", "elif ", "except", "isinstance")):
-            sc += 1.5
+            sc += 2.0
         scored_windows.append((sc, ws))
 
     scored_windows.sort(key=lambda x: x[0], reverse=True)
     w1_start = scored_windows[0][1] if scored_windows else best_exec_start
     w2_start = w1_start
     for sc, ws in scored_windows[1:]:
-        if abs(ws - w1_start) >= 4:
+        if abs(ws - w1_start) >= 6:
             w2_start = ws
             break
 
@@ -447,7 +451,7 @@ def find_best_symbol_and_window(
         kept = []
         chars = 0
         for ln in lines[w_s - 1 : w_e]:
-            if chars + len(ln) > 260 and len(kept) >= 3:
+            if chars + len(ln) > 440 and len(kept) >= 5:
                 break
             kept.append(ln)
             chars += len(ln) + 1
@@ -464,7 +468,7 @@ def localize_candidates_at_base_commit(
 ) -> dict[str, Any]:
     """
     Stage 1 Worker: Uses ONLY `problem_statement`, `repo`, and `base_commit` (Zero Oracle Leakage)
-    with Traceback Frame Pinning + Dotted Import Resolution + Single-Call AST Definition Indexing.
+    with Law 1 Ridge-Learned Feature Coupling + Deep-Frame Stub Discount + AST Definition Indexing.
     """
     iid = row["instance_id"]
     repo = row["repo"]
@@ -503,44 +507,51 @@ def localize_candidates_at_base_commit(
 
     signals = extract_issue_signals(problem, repo=repo)
     file_scores: dict[str, float] = {}
+    s_tb_deep_map: dict[str, float] = {}
+    s_tb_outer_map: dict[str, float] = {}
+    s_explicit_map: dict[str, float] = {}
+    s_module_map: dict[str, float] = {}
+    s_pkg_map: dict[str, float] = {}
+    s_stem_map: dict[str, float] = {}
+    s_ast_def_map: dict[str, float] = {}
+    s_usage_map: dict[str, float] = {}
     pinned_lines_by_file: dict[str, list[int]] = {}
     def_hits_by_file: dict[str, list[tuple[str, int]]] = {}
 
-    # 1. Traceback frame pinning (highest precision signal in SWE-bench)
+    # 1. Traceback frame pinning (with Law 1 deep-frame vs outer-frame decomposition)
     tb_frames = signals["tb_frames"]
     for idx_tb, (tb_fp, tb_ln, _) in enumerate(tb_frames):
         is_deepest = idx_tb == len(tb_frames) - 1
-        tb_boost = 92.0 if is_deepest else 62.0
         for fp in all_py_files:
             if fp == tb_fp or fp.endswith("/" + tb_fp) or tb_fp.endswith("/" + fp) or fp.endswith(tb_fp):
-                file_scores[fp] = file_scores.get(fp, 0.0) + tb_boost
+                if is_deepest:
+                    s_tb_deep_map[fp] = s_tb_deep_map.get(fp, 0.0) + 92.0
+                else:
+                    s_tb_outer_map[fp] = s_tb_outer_map.get(fp, 0.0) + 62.0
                 pinned_lines_by_file.setdefault(fp, []).append(tb_ln)
 
     # 2. Explicit file mentions, dotted module import paths, package directories, and clean stems
     for fp in all_py_files:
         fp_low = fp.lower()
         stem_clean = Path(fp_low).stem.lstrip("_")
-        score = file_scores.get(fp, 0.0)
 
         for ef in signals["explicit_files"]:
             ef_norm = ef.replace("\\", "/").lstrip("./")
             if fp == ef_norm or fp.endswith("/" + ef_norm) or ef_norm.endswith("/" + fp):
-                score += 75.0
+                s_explicit_map[fp] = s_explicit_map.get(fp, 0.0) + 75.0
         for mc in signals["module_candidates"]:
             mc_low = mc.lower()
             if fp_low == mc_low or fp_low.endswith("/" + mc_low):
-                score += 56.0
+                s_module_map[fp] = s_module_map.get(fp, 0.0) + 56.0
         for pdir in signals["package_dirs"]:
             pdir_low = pdir.lower()
             if fp_low.startswith(pdir_low) or ("/" + pdir_low) in fp_low:
-                score += 24.0
+                s_pkg_map[fp] = s_pkg_map.get(fp, 0.0) + 24.0
         for ps in signals["path_stems"]:
             if ps == stem_clean and stem_clean not in ("init", "base", "utils", "common", "exceptions"):
-                score += 24.0
+                s_stem_map[fp] = s_stem_map.get(fp, 0.0) + 24.0
             elif len(ps) >= 5 and ps in stem_clean:
-                score += 11.0
-        if score > 0:
-            file_scores[fp] = score
+                s_stem_map[fp] = s_stem_map.get(fp, 0.0) + 11.0
 
     # 3. Single-Call AST Definition `git grep` (`def <sym>` or `class <sym>`) at base_commit
     def_syms = [re.escape(s) for s in signals["symbols"][:14] if len(s) >= 3]
@@ -556,7 +567,6 @@ def localize_candidates_at_base_commit(
             if gp_def.returncode == 0:
                 sym_to_files: dict[str, list[tuple[str, int]]] = {}
                 for ln in gp_def.stdout.splitlines():
-                    # Format: commit:file_path:lineno:line_content
                     parts = ln.split(":", 3)
                     if len(parts) < 4:
                         continue
@@ -578,15 +588,15 @@ def localize_candidates_at_base_commit(
                         priority_mult = 1.25 if rank_idx < 4 else 1.0
                         def_boost = priority_mult * (68.0 / (1.0 + 0.25 * (len(unique_files) - 1)))
                         for rel_fp in unique_files:
-                            file_scores[rel_fp] = file_scores.get(rel_fp, 0.0) + def_boost
+                            s_ast_def_map[rel_fp] = s_ast_def_map.get(rel_fp, 0.0) + def_boost
                         for rel_fp, lno in file_lno_list:
                             def_hits_by_file.setdefault(rel_fp, []).append((sym_name, lno))
         except Exception:
             pass
 
-    # 4. Usage `git grep` for top 4 distinctive symbols
-    for sym_tok in signals["symbols"][:4]:
-        if len(sym_tok) < 5:
+    # 4. Usage `git grep` for top 5 distinctive symbols (Law 1 top Ridge predictor: w* = +24.91)
+    for sym_tok in signals["symbols"][:5]:
+        if len(sym_tok) < 4:
             continue
         try:
             gp = subprocess.run(
@@ -604,9 +614,48 @@ def localize_candidates_at_base_commit(
                 if rel in all_py_set:
                     hits.append(rel)
             if 0 < len(hits) <= 35:
-                boost = 26.0 / (1.0 + 0.15 * len(hits))
+                boost = 28.0 / (1.0 + 0.15 * len(hits))
                 for rel in hits:
-                    file_scores[rel] = file_scores.get(rel, 0.0) + boost
+                    s_usage_map[rel] = s_usage_map.get(rel, 0.0) + boost
+
+    # Law 1 Ridge-Coupled Score Synthesis with Deep-Frame Stub Discount:
+    all_touched = (
+        set(s_tb_deep_map)
+        | set(s_tb_outer_map)
+        | set(s_explicit_map)
+        | set(s_module_map)
+        | set(s_pkg_map)
+        | set(s_stem_map)
+        | set(s_ast_def_map)
+        | set(s_usage_map)
+    )
+    for fp in all_touched:
+        s_deep = s_tb_deep_map.get(fp, 0.0)
+        s_outer = s_tb_outer_map.get(fp, 0.0)
+        s_exp = s_explicit_map.get(fp, 0.0)
+        s_mod = s_module_map.get(fp, 0.0)
+        s_pkg = s_pkg_map.get(fp, 0.0)
+        s_stm = s_stem_map.get(fp, 0.0)
+        s_def = s_ast_def_map.get(fp, 0.0)
+        s_use = s_usage_map.get(fp, 0.0)
+
+        # Discount isolated deep stack frame validation/exception stubs without AST def or domain usage
+        if s_deep > 0 and s_def == 0 and s_use < 10.0 and s_exp == 0:
+            s_deep *= 0.65
+        synergy = 18.0 if (s_def > 0 and s_use > 0) else 0.0
+        total_sc = (
+            1.35 * s_exp
+            + 1.15 * s_mod
+            + 0.90 * s_pkg
+            + 1.05 * s_stm
+            + 1.25 * s_def
+            + 1.65 * s_use
+            + 0.85 * s_outer
+            + 0.80 * s_deep
+            + synergy
+        )
+        if total_sc > 0:
+            file_scores[fp] = total_sc
 
     ranked = sorted(file_scores.items(), key=lambda kv: kv[1], reverse=True)[:6]
     if not ranked and all_py_files:
@@ -692,11 +741,15 @@ def run_batched_generation(
     temperature: float = 0.35,
     stage_name: str = "Stage",
 ) -> list[str]:
-    outputs: list[str] = []
     total = len(prompts)
+    indexed_prompts = sorted(enumerate(prompts), key=lambda x: len(x[1]))
+    outputs: list[str] = [""] * total
     t0 = time.time()
+    done = 0
     for start in range(0, total, batch_size):
-        batch_prompts = prompts[start : start + batch_size]
+        chunk = indexed_prompts[start : start + batch_size]
+        orig_indices = [c[0] for c in chunk]
+        batch_prompts = [c[1] for c in chunk]
         enc = tokenizer(
             batch_prompts,
             return_tensors="pt",
@@ -705,7 +758,7 @@ def run_batched_generation(
             max_length=1024,
         ).to(device)
         prompt_len = int(enc["input_ids"].shape[1])
-        stop_crit = StoppingCriteriaList([BatchJSONStoppingCriteria(tokenizer, prompt_len)])
+        stop_crit = StoppingCriteriaList([BatchJSONStoppingCriteria(tokenizer, prompt_len, len(batch_prompts))])
 
         with torch.no_grad(), torch.amp.autocast("cuda", dtype=torch.bfloat16):
             if do_sample:
@@ -731,26 +784,93 @@ def run_batched_generation(
                     eos_token_id=tokenizer.eos_token_id,
                 )
 
-        for idx in range(gen.shape[0]):
-            new_ids = gen[idx, prompt_len:]
-            txt = tokenizer.decode(new_ids, skip_special_tokens=True)
-            outputs.append(trim_to_first_json_object(txt))
+        gen_slice = gen[:, prompt_len:]
+        decoded_batch = tokenizer.batch_decode(gen_slice, skip_special_tokens=True)
+        for orig_idx, txt in zip(orig_indices, decoded_batch):
+            outputs[orig_idx] = trim_to_first_json_object(txt)
 
-        done = min(start + batch_size, total)
-        if done % (batch_size * 3) == 0 or done == total:
+        done += len(batch_prompts)
+        if done % (batch_size * 2) == 0 or done == total:
             el = time.time() - t0
             print(f"  [{stage_name}] {done}/{total} sequences decoded ({el:.1f}s, {done/max(el,1e-3):.1f} seq/s)", flush=True)
     return outputs
 
 
+def _try_ast_indent_heal(
+    src_lines: list[str],
+    match_idx: int,
+    match_len: int,
+    replace_text: str,
+    trailing_nl: bool,
+) -> str:
+    """Law 4 AST Indentation Auto-Healer: tests candidate indentation offsets when raw replacement raises SyntaxError/IndentationError."""
+    orig_indent = len(src_lines[match_idx]) - len(src_lines[match_idx].lstrip())
+    rep_raw = replace_text.strip("\n").splitlines()
+    if not rep_raw:
+        return ""
+    first_rep_indent = len(rep_raw[0]) - len(rep_raw[0].lstrip())
+    base_delta = orig_indent - first_rep_indent
+    suffix = "\n" if trailing_nl else ""
+
+    candidate_deltas = [base_delta, 0, base_delta + 4, base_delta - 4, base_delta + 8, base_delta - 8]
+    seen_deltas = set()
+    fallback_patched = ""
+    for d in candidate_deltas:
+        if d in seen_deltas:
+            continue
+        seen_deltas.add(d)
+        adjusted = []
+        for rl in rep_raw:
+            if not rl.strip():
+                adjusted.append(rl)
+            else:
+                cur_ind = len(rl) - len(rl.lstrip())
+                new_ind = max(0, cur_ind + d)
+                adjusted.append((" " * new_ind) + rl.lstrip())
+        cand_src = "\n".join(src_lines[:match_idx] + adjusted + src_lines[match_idx + match_len :]) + suffix
+        if not fallback_patched:
+            fallback_patched = cand_src
+        try:
+            ast.parse(cand_src)
+            return cand_src
+        except Exception:
+            pass
+
+    # Also test shifting only lines[1:] relative to line[0] (fixes LLM first-line stripped indent)
+    if len(rep_raw) >= 2:
+        line0 = (" " * orig_indent) + rep_raw[0].lstrip()
+        for body_d in (0, 4, -4, 8, -8, orig_indent):
+            adjusted = [line0]
+            for rl in rep_raw[1:]:
+                if not rl.strip():
+                    adjusted.append(rl)
+                else:
+                    cur_ind = len(rl) - len(rl.lstrip())
+                    new_ind = max(0, cur_ind + body_d)
+                    adjusted.append((" " * new_ind) + rl.lstrip())
+            cand_src = "\n".join(src_lines[:match_idx] + adjusted + src_lines[match_idx + match_len :]) + suffix
+            try:
+                ast.parse(cand_src)
+                return cand_src
+            except Exception:
+                pass
+
+    return fallback_patched
+
+
 def try_apply_edit_block_to_source(full_source: str, search_text: str, replace_text: str) -> tuple[bool, str]:
     if not full_source or not search_text or not replace_text or search_text.strip() == replace_text.strip():
         return False, ""
+    trailing_nl = full_source.endswith("\n")
     if search_text in full_source:
         patched = full_source.replace(search_text, replace_text, 1)
-        return True, patched
+        try:
+            ast.parse(patched)
+            return True, patched
+        except Exception:
+            pass
 
-    # Line-trimmed fuzzy match (matches OmniCoder's devops.ApplyEditBlocks FuzzyMatch)
+    # Line-trimmed fuzzy match + Law 4 AST Indentation Healer
     src_lines = full_source.splitlines()
     s_lines = [ln.strip() for ln in search_text.strip().splitlines() if ln.strip()]
     if not s_lines:
@@ -759,15 +879,29 @@ def try_apply_edit_block_to_source(full_source: str, search_text: str, replace_t
     for i in range(len(src_lines) - len(s_lines) + 1):
         window = [src_lines[i + j].strip() for j in range(len(s_lines))]
         if window == s_lines:
-            orig_indent = len(src_lines[i]) - len(src_lines[i].lstrip())
-            rep_lines = replace_text.strip("\n").splitlines()
-            if rep_lines:
-                first_rep_indent = len(rep_lines[0]) - len(rep_lines[0].lstrip())
-                delta = orig_indent - first_rep_indent
-                if delta > 0:
-                    rep_lines = [(" " * delta) + rl if rl.strip() else rl for rl in rep_lines]
-            new_lines = src_lines[:i] + rep_lines + src_lines[i + len(s_lines) :]
-            return True, "\n".join(new_lines) + ("\n" if full_source.endswith("\n") else "")
+            healed = _try_ast_indent_heal(src_lines, i, len(s_lines), replace_text, trailing_nl)
+            if healed:
+                return True, healed
+
+    # Law 4 Boundary Anchor Fallback: unique (first_line, last_line) match when 1 middle line drifted
+    if len(s_lines) >= 2:
+        first_l, last_l = s_lines[0], s_lines[-1]
+        min_span = max(2, len(s_lines) - 1)
+        max_span = len(s_lines) + 2
+        boundary_matches: list[tuple[int, int]] = []
+        for i, sl in enumerate(src_lines):
+            if sl.strip() == first_l:
+                for span in range(min_span, max_span + 1):
+                    end_idx = i + span - 1
+                    if end_idx < len(src_lines) and src_lines[end_idx].strip() == last_l:
+                        boundary_matches.append((i, span))
+                        break
+        if len(boundary_matches) == 1:
+            b_i, b_span = boundary_matches[0]
+            healed = _try_ast_indent_heal(src_lines, b_i, b_span, replace_text, trailing_nl)
+            if healed:
+                return True, healed
+
     return False, ""
 
 
@@ -892,7 +1026,7 @@ def make_heal_prompt(fp: str, sym: str, start_line: int, vln_hint: str, short_is
     if vln_hint:
         heal_parts.append(f"VLN: {vln_hint}")
     heal_parts.append(f"Issue: {short_issue[:260]}")
-    heal_parts.append("Context:\n" + snippet[:280])
+    heal_parts.append("Context:\n" + snippet[:440])
     heal_u = "\n".join(heal_parts)
     return f"<|system|>\n{SYS_HEAL}\n<|user|>\n{heal_u}\n<|assistant|>\n"
 
@@ -967,10 +1101,10 @@ def main():
     # =========================================================================
     # STAGE 2: Homogeneous A100 Batched `[OC:LOCATE]` Hybrid Reranking
     # =========================================================================
-    print(f"[Stage 2/5] Running batched [OC:LOCATE] across {len(items)} instances (batch_size=48)...", flush=True)
+    print(f"[Stage 2/5] Running batched [OC:LOCATE] across {len(items)} instances (batch_size=96)...", flush=True)
     locate_prompts = [it["locate_prompt"] for it in items]
     locate_raw = run_batched_generation(
-        model, tokenizer, device, locate_prompts, batch_size=48, max_new_tokens=64, do_sample=False, stage_name="OC:LOCATE"
+        model, tokenizer, device, locate_prompts, batch_size=96, max_new_tokens=64, do_sample=False, stage_name="OC:LOCATE"
     )
 
     repro_prompts = []
@@ -988,12 +1122,12 @@ def main():
         if parsed_loc is not None:
             cand_fp = str(parsed_loc.get("primary_file") or "")
             if cand_fp in it["file_windows"]:
-                neural_votes[cand_fp] = 28.0
+                neural_votes[cand_fp] = 32.0
             for s_idx, sf in enumerate(parsed_loc.get("supporting_files") or []):
                 if isinstance(sf, str) and sf in it["file_windows"] and sf not in neural_votes:
-                    neural_votes[sf] = 14.0 if s_idx == 0 else 7.0
+                    neural_votes[sf] = 16.0 if s_idx == 0 else 8.0
 
-        # Hybrid score = Stage 1 structural score + Stage 2 [OC:LOCATE] neural boost
+        # Hybrid score = Stage 1 Ridge-learned structural score + Stage 2 [OC:LOCATE] neural boost
         ranked_cands = sorted(
             cands,
             key=lambda c: c.get("raw_score", c["score"]) + neural_votes.get(c["file"], 0.0),
@@ -1011,18 +1145,18 @@ def main():
 
         win1 = it["file_windows"].get(
             pred_fp,
-            {"symbol": pred_sym, "line_range": [1, 8], "snippet": "", "snippet_alt": "", "full_source": "", "raw_score": 20.0},
+            {"symbol": pred_sym, "line_range": [1, 12], "snippet": "", "snippet_alt": "", "full_source": "", "raw_score": 20.0},
         )
         it["target_snippet"] = win1["snippet"]
         it["target_full_source"] = win1["full_source"]
         lrange1 = win1["line_range"]
 
-        # Secondary candidate file (#2) for multi-file K=4 tournament
+        # Secondary candidate file (#2) for multi-file K=4 tournament (Law 3: remove static 24.0 vs 15.0 handicap)
         sec_fp = pred_supp[0] if pred_supp else pred_fp
         win2 = it["file_windows"].get(sec_fp, win1)
         sc1 = win1.get("raw_score", 30.0) + neural_votes.get(pred_fp, 0.0)
         sc2 = win2.get("raw_score", 15.0) + neural_votes.get(sec_fp, 0.0)
-        use_sec_file_on_k3 = (sec_fp != pred_fp) and (sc2 >= 0.58 * sc1)
+        use_sec_file_on_k3 = (sec_fp != pred_fp) and (sc2 >= 0.45 * sc1)
 
         # Build [OC:REPRO] prompt
         repro_parts = ["Lang: python", f"Files: {pred_fp}"]
@@ -1053,10 +1187,11 @@ def main():
                 it["short_issue"],
                 win2["snippet"],
             )
-            k3_meta = {"file": sec_fp, "full_source": win2["full_source"], "prior_bonus": 15.0}
+            k3_prior = round(20.5 * min(1.0, max(0.80, sc2 / max(sc1, 1.0))), 2)
+            k3_meta = {"file": sec_fp, "full_source": win2["full_source"], "prior_bonus": k3_prior}
         else:
             p_k3 = p_w1
-            k3_meta = {"file": pred_fp, "full_source": win1["full_source"], "prior_bonus": 18.0}
+            k3_meta = {"file": pred_fp, "full_source": win1["full_source"], "prior_bonus": 20.0}
 
         heal_prompts_k0.append(p_w1)
         heal_prompts_k1.append(p_w1)
@@ -1064,9 +1199,9 @@ def main():
         heal_prompts_k3.append(p_k3)
         beam_meta_per_item.append(
             [
-                {"file": pred_fp, "full_source": win1["full_source"], "prior_bonus": 24.0},
-                {"file": pred_fp, "full_source": win1["full_source"], "prior_bonus": 22.0},
-                {"file": pred_fp, "full_source": win1["full_source"], "prior_bonus": 19.0},
+                {"file": pred_fp, "full_source": win1["full_source"], "prior_bonus": 21.5},
+                {"file": pred_fp, "full_source": win1["full_source"], "prior_bonus": 21.0},
+                {"file": pred_fp, "full_source": win1["full_source"], "prior_bonus": 20.5},
                 k3_meta,
             ]
         )
@@ -1074,9 +1209,9 @@ def main():
     # =========================================================================
     # STAGE 3: Homogeneous A100 Batched `[OC:REPRO]` Synthesis
     # =========================================================================
-    print(f"[Stage 3/5] Running batched [OC:REPRO] across {len(items)} instances (batch_size=48)...", flush=True)
+    print(f"[Stage 3/5] Running batched [OC:REPRO] across {len(items)} instances (batch_size=96)...", flush=True)
     repro_raw = run_batched_generation(
-        model, tokenizer, device, repro_prompts, batch_size=48, max_new_tokens=112, do_sample=False, stage_name="OC:REPRO"
+        model, tokenizer, device, repro_prompts, batch_size=96, max_new_tokens=112, do_sample=False, stage_name="OC:REPRO"
     )
     for it, rep_txt in zip(items, repro_raw):
         p_rep = try_parse_json(rep_txt)
@@ -1093,12 +1228,12 @@ def main():
     # =========================================================================
     # STAGE 4: Multi-Window + Top-2 Speculative K=4 `[OC:HEAL]` Tournament
     # =========================================================================
-    print(f"[Stage 4/5] Running Config 3 Multi-Window Speculative K=4 [OC:HEAL] Tournament across {len(items)} instances (batch_size=48, max_new_tokens=220)...", flush=True)
+    print(f"[Stage 4/5] Running Config 3 v3 Multi-Window Speculative K=4 [OC:HEAL] Tournament across {len(items)} instances (batch_size=96, max_new_tokens=220)...", flush=True)
     all_candidates_per_item: list[list[str]] = [[] for _ in items]
 
     # K=0: Greedy Anchor on Primary File Focal Window #1
     c0_raw = run_batched_generation(
-        model, tokenizer, device, heal_prompts_k0, batch_size=48, max_new_tokens=220, do_sample=False, stage_name="OC:HEAL-Greedy-K0"
+        model, tokenizer, device, heal_prompts_k0, batch_size=96, max_new_tokens=220, do_sample=False, stage_name="OC:HEAL-Greedy-K0"
     )
     k0_valid_cnt = 0
     for i, txt in enumerate(c0_raw):
@@ -1109,21 +1244,21 @@ def main():
 
     # K=1: Speculative Beam (T=0.30) on Primary File Focal Window #1
     c1_raw = run_batched_generation(
-        model, tokenizer, device, heal_prompts_k1, batch_size=48, max_new_tokens=220, do_sample=True, temperature=0.30, stage_name="OC:HEAL-Beam-K1"
+        model, tokenizer, device, heal_prompts_k1, batch_size=96, max_new_tokens=220, do_sample=True, temperature=0.30, stage_name="OC:HEAL-Beam-K1"
     )
     for i, txt in enumerate(c1_raw):
         all_candidates_per_item[i].append(txt)
 
     # K=2: Speculative Beam (T=0.20) on Primary File Secondary Focal Window #2
     c2_raw = run_batched_generation(
-        model, tokenizer, device, heal_prompts_k2, batch_size=48, max_new_tokens=220, do_sample=True, temperature=0.20, stage_name="OC:HEAL-Window2-K2"
+        model, tokenizer, device, heal_prompts_k2, batch_size=96, max_new_tokens=220, do_sample=True, temperature=0.20, stage_name="OC:HEAL-Window2-K2"
     )
     for i, txt in enumerate(c2_raw):
         all_candidates_per_item[i].append(txt)
 
     # K=3: Speculative Beam (T=0.25) on Candidate File #2 (or Primary Window #1)
     c3_raw = run_batched_generation(
-        model, tokenizer, device, heal_prompts_k3, batch_size=48, max_new_tokens=220, do_sample=True, temperature=0.25, stage_name="OC:HEAL-Top2File-K3"
+        model, tokenizer, device, heal_prompts_k3, batch_size=96, max_new_tokens=220, do_sample=True, temperature=0.25, stage_name="OC:HEAL-Top2File-K3"
     )
     for i, txt in enumerate(c3_raw):
         all_candidates_per_item[i].append(txt)
