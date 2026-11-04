@@ -1,0 +1,200 @@
+{
+  "timestamp": "2026-11-03T22:12:38Z",
+  "dataset": "lite300",
+  "filter": "unseen_only",
+  "instances_evaluated": 6,
+  "speculative_k": 4,
+  "real_repo_localize_top1_pct": 33.3,
+  "real_repo_localize_top3_pct": 33.3,
+  "reproducer_verified_on_base_pct": 16.7,
+  "non_empty_patch_generated_pct": 66.7,
+  "patched_correct_gold_file_pct": 33.3,
+  "mean_diff_token_f1_pct": 7.7,
+  "official_fail_to_pass_resolved_count": 0,
+  "official_fail_to_pass_resolved_pct": 0.0,
+  "peak_vram_mb": 2367.5,
+  "results": [
+    {
+      "instance_id": "django__django-13401",
+      "repo": "django/django",
+      "base_commit": "453967477e3ddae704cd739eac2449c0e13d464c",
+      "in_training_split": false,
+      "elapsed_sec": 76.34,
+      "solve_exit_code": 0,
+      "localized_file": "django/db/models/fields/__init__.py",
+      "supporting_files": [
+        "django/forms/models.py",
+        "django/db/models/fields/files.py",
+        "django/db/models/base.py",
+        "django/forms/fields.py"
+      ],
+      "gold_files": [
+        "django/db/models/fields/__init__.py"
+      ],
+      "localize_top1_match": true,
+      "localize_top3_match": true,
+      "repro_verified_on_base": false,
+      "vln_hint_injected": false,
+      "patch_generated": true,
+      "patched_files": [
+        "django/db/models/fields/__init__.py"
+      ],
+      "patched_target_file_match": true,
+      "diff_token_f1_pct": 21.3,
+      "fail_to_pass_resolved": false,
+      "test_eval_note": "\\site-packages\\pytest_asyncio\\plugin.py\", line 38, in <module>\n    from pytest import (\nImportError: cannot import name 'FixtureDef' from 'pytest' (C:\\Users\\livin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\pytest\\__init__.py)",
+      "model_patch": "diff --git a/django/db/models/fields/__init__.py b/django/db/models/fields/__init__.py\nindex 28374272f4..53680e1d8c 100644\n--- a/django/db/models/fields/__init__.py\n+++ b/django/db/models/fields/__init__.py\n@@ -203,6 +203,7 @@ class Field(RegisterLookupMixin):\n             *self._check_backend_specific_checks(**kwargs),\n             *self._check_validators(),\n             *self._check_deprecation_details(),\n+            *self._check_abstract_model_field(),\n         ]\n \n     def _check_field_name(self):\n"
+    },
+    {
+      "instance_id": "django__django-16820",
+      "repo": "django/django",
+      "base_commit": "c61219a7ae051d2baab53f041e00592011fc550c",
+      "in_training_split": false,
+      "elapsed_sec": 72.83,
+      "solve_exit_code": 0,
+      "localized_file": "django/utils/deprecation.py",
+      "supporting_files": [
+        "django/db/models/indexes.py",
+        "django/utils/deprecation.py",
+        "django/conf/__init__.py",
+        "django/contrib/auth/migrations/0011_update_proxy_permissions.py"
+      ],
+      "gold_files": [
+        "django/db/migrations/operations/models.py"
+      ],
+      "localize_top1_match": false,
+      "localize_top3_match": false,
+      "repro_verified_on_base": false,
+      "vln_hint_injected": false,
+      "patch_generated": true,
+      "patched_files": [
+        "django/utils/deprecation.py"
+      ],
+      "patched_target_file_match": false,
+      "diff_token_f1_pct": 0.0,
+      "fail_to_pass_resolved": false,
+      "test_eval_note": "\\site-packages\\pytest_asyncio\\plugin.py\", line 38, in <module>\n    from pytest import (\nImportError: cannot import name 'FixtureDef' from 'pytest' (C:\\Users\\livin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\pytest\\__init__.py)",
+      "model_patch": "diff --git a/django/utils/deprecation.py b/django/utils/deprecation.py\nindex 836cfa564c..78f6b4c494 100644\n--- a/django/utils/deprecation.py\n+++ b/django/utils/deprecation.py\n@@ -11,8 +11,7 @@ class RemovedInDjango51Warning(DeprecationWarning):\n class RemovedInDjango60Warning(PendingDeprecationWarning):\n     pass\n \n-\n-RemovedInNextVersionWarning = RemovedInDjango51Warning\n+RemovedInDjango51Warning = RemovedInDjango60Warning\n RemovedAfterNextVersionWarning = RemovedInDjango60Warning\n \n \n"
+    },
+    {
+      "instance_id": "matplotlib__matplotlib-18869",
+      "repo": "matplotlib/matplotlib",
+      "base_commit": "b7d05919865fc0c37a0164cf467d5d5513bd0ede",
+      "in_training_split": false,
+      "elapsed_sec": 147.16,
+      "solve_exit_code": 0,
+      "localized_file": "lib/matplotlib/dviread.py",
+      "supporting_files": [
+        "lib/matplotlib/sphinxext/plot_directive.py",
+        "setupext.py",
+        "lib/matplotlib/backends/backend_agg.py",
+        "lib/matplotlib/backends/backend_svg.py"
+      ],
+      "gold_files": [
+        "lib/matplotlib/__init__.py"
+      ],
+      "localize_top1_match": false,
+      "localize_top3_match": false,
+      "repro_verified_on_base": false,
+      "vln_hint_injected": false,
+      "patch_generated": false,
+      "patched_files": [],
+      "patched_target_file_match": false,
+      "diff_token_f1_pct": 0.0,
+      "fail_to_pass_resolved": false,
+      "test_eval_note": "no_patch_generated",
+      "model_patch": ""
+    },
+    {
+      "instance_id": "pytest-dev__pytest-5495",
+      "repo": "pytest-dev/pytest",
+      "base_commit": "1aefb24b37c30fba8fd79a744829ca16e252f340",
+      "in_training_split": false,
+      "elapsed_sec": 92.45,
+      "solve_exit_code": 0,
+      "localized_file": "src/_pytest/assertion/rewrite.py",
+      "supporting_files": [
+        "src/_pytest/recwarn.py",
+        "src/_pytest/assertion/rewrite.py",
+        "src/_pytest/compat.py",
+        "src/_pytest/config/argparsing.py"
+      ],
+      "gold_files": [
+        "src/_pytest/assertion/util.py"
+      ],
+      "localize_top1_match": false,
+      "localize_top3_match": false,
+      "repro_verified_on_base": false,
+      "vln_hint_injected": false,
+      "patch_generated": false,
+      "patched_files": [],
+      "patched_target_file_match": false,
+      "diff_token_f1_pct": 0.0,
+      "fail_to_pass_resolved": false,
+      "test_eval_note": "no_patch_generated",
+      "model_patch": ""
+    },
+    {
+      "instance_id": "scikit-learn__scikit-learn-25638",
+      "repo": "scikit-learn/scikit-learn",
+      "base_commit": "6adb209acd63825affc884abcd85381f148fb1b0",
+      "in_training_split": false,
+      "elapsed_sec": 40.22,
+      "solve_exit_code": 0,
+      "localized_file": "sklearn/utils/multiclass.py",
+      "supporting_files": [
+        "sklearn/utils/_array_api.py",
+        "sklearn/utils/_testing.py",
+        "sklearn/utils/estimator_checks.py",
+        "sklearn/preprocessing/_function_transformer.py"
+      ],
+      "gold_files": [
+        "sklearn/utils/multiclass.py"
+      ],
+      "localize_top1_match": true,
+      "localize_top3_match": true,
+      "repro_verified_on_base": true,
+      "vln_hint_injected": true,
+      "patch_generated": true,
+      "patched_files": [
+        "sklearn/utils/multiclass.py"
+      ],
+      "patched_target_file_match": true,
+      "diff_token_f1_pct": 9.5,
+      "fail_to_pass_resolved": false,
+      "test_eval_note": "t forget\nto build the package before using it: run `python setup.py install` or\n`make` in the source directory.\n\nIf you have used an installer, please check that it is suited for your\nPython version, your operating system and your platform.",
+      "model_patch": "diff --git a/sklearn/utils/multiclass.py b/sklearn/utils/multiclass.py\nindex 5eaef2fde..2f78b95f4 100644\n--- a/sklearn/utils/multiclass.py\n+++ b/sklearn/utils/multiclass.py\n@@ -38,6 +38,7 @@ _FN_UNIQUE_LABELS = {\n     \"binary\": _unique_multiclass,\n     \"multiclass\": _unique_multiclass,\n     \"multilabel-indicator\": _unique_indicator,\n+    \"nullable\": _unique_multiclass,\n }\n \n \n"
+    },
+    {
+      "instance_id": "sphinx-doc__sphinx-8801",
+      "repo": "sphinx-doc/sphinx",
+      "base_commit": "7ca279e33aebb60168d35e6be4ed059f4a68f2c1",
+      "in_training_split": false,
+      "elapsed_sec": 51.24,
+      "solve_exit_code": 0,
+      "localized_file": "sphinx/ext/autodoc/__init__.py",
+      "supporting_files": [
+        "sphinx/ext/napoleon/docstring.py",
+        "sphinx/ext/autodoc/directive.py",
+        "sphinx/project.py",
+        "sphinx/domains/python.py"
+      ],
+      "gold_files": [
+        "sphinx/ext/autodoc/importer.py"
+      ],
+      "localize_top1_match": false,
+      "localize_top3_match": false,
+      "repro_verified_on_base": false,
+      "vln_hint_injected": false,
+      "patch_generated": true,
+      "patched_files": [
+        "sphinx/ext/autodoc/__init__.py"
+      ],
+      "patched_target_file_match": false,
+      "diff_token_f1_pct": 15.4,
+      "fail_to_pass_resolved": false,
+      "test_eval_note": "\\site-packages\\pytest_asyncio\\plugin.py\", line 38, in <module>\n    from pytest import (\nImportError: cannot import name 'FixtureDef' from 'pytest' (C:\\Users\\livin\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\pytest\\__init__.py)",
+      "model_patch": "diff --git a/sphinx/ext/autodoc/__init__.py b/sphinx/ext/autodoc/__init__.py\nindex dc413b5c2..12215993b 100644\n--- a/sphinx/ext/autodoc/__init__.py\n+++ b/sphinx/ext/autodoc/__init__.py\n@@ -816,6 +816,8 @@ class Documenter:\n \n         If *all_members* is True, do all members, else those given by\n         *self.options.members*.\n+        If *all_members* is False, do all members, else those given by\n+        *self.options.members*.\n         \"\"\"\n         # set current namespace for finding members\n         self.env.temp_data['autodoc:module'] = self.modname\n"
+    }
+  ]
+}

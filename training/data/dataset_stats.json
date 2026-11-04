@@ -1,0 +1,14 @@
+{
+  "swebench_instances_parsed": 407,
+  "total_sft_trajectories": 1535,
+  "train_trajectories": 1413,
+  "eval_trajectories": 122,
+  "dpo_preference_pairs": 397,
+  "vln_enriched_trajectories": 877,
+  "card_type_distribution": {
+    "GateEdit": 397,
+    "GateLocate": 397,
+    "GateReproducer": 344,
+    "GateHeal": 397
+  }
+}

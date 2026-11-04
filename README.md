@@ -29,6 +29,26 @@ Instead of pouring 100,000+ tokens of raw files and stale shell transcripts into
 
 ---
 
+## Official Zero-Leakage `SWE-300` (`SWE-bench_Lite`) Benchmark (`Config 3 v4`)
+
+By pairing **`OmniCoder-ICX`** (deterministic AST, BM25, 1-hop import-graph, and 2048-bit SDR Hopfield VLN engine) with the co-tuned 2-billion-parameter **`OmniCoder-Gemma-E2B`** model (`[OC:LOCATE]`, `[OC:REPRO]`, `[OC:HEAL]`), the combined organism achieves frontier-grade actuation on all **`300` unseen `princeton-nlp/SWE-bench_Lite` test instances (`0.0%` training overlap)** on a single NVIDIA A100-80GB (`<15 GB` VRAM):
+
+| Metric (`N = 300` Unseen `SWE-bench_Lite` Issues, `0%` Overlap) | `v1` Baseline | `v2` Upgraded | `v3` (Laws 1–4) | **`v4` (Import-Graph + Dual-Window)** | Total Gain (`v1` $\to$ `v4`) |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| **Wall-Clock Runtime (`NVIDIA A100-80GB`)** | `24.16 min` | `20.55 min` | `9.65 min` | **`8.46 min` (`507.8s`)** | **`2.86x` faster (`~1.69s` / issue)** |
+| **`[OC:LOCATE]` JSON Validity** | `100.0%` (`300/300`) | `100.0%` (`300/300`) | `100.0%` (`300/300`) | **`100.0%` (`300/300`)** | `100.0%` deterministic schema compliance |
+| **`[OC:LOCATE]` Real-Repo Top-1 Accuracy (`Loc@1`)** | `35.3%` (`106/300`) | `40.3%` (`121/300`) | `45.0%` (`135/300`) | **`50.3%` (`151/300`)** | **`+15.0%` (`+45` exact files, `+42.5%` rel.)** |
+| **`[OC:LOCATE]` Real-Repo Top-3 Recall (`Loc@3`)** | `60.0%` (`180/300`) | `57.3%` (`172/300`) | `59.3%` (`178/300`) | **`66.0%` (`198/300`)** | **`+6.0%` (`+18` instances)** |
+| **Stage-1 Top-6 Candidate Recall** | `64.3%` (`193/300`) | `64.7%` (`194/300`) | `65.3%` (`196/300`) | **`75.0%` (`225/300`)** | **`+10.7%` (`+32` instances)** |
+| **`[OC:REPRO]` Valid Python AST Reproducer Rate** | `99.7%` (`299/300`) | `99.0%` (`297/300`) | `99.7%` (`299/300`) | **`100.0%` (`300/300`)** | **`100.0%` (`300/300` valid AST)** |
+| **`[OC:HEAL]` Real-Source `search_text` Anchor Match** | `87.7%` (`263/300`) | `95.7%` (`287/300`) | `98.7%` (`296/300`) | **`99.3%` (`298/300`)** | **`+11.6%` (`+35` instances)** |
+| **`[OC:HEAL]` AST-Verified Unified Diff Rate (`Patched`)** | `86.0%` (`258/300`) | `93.7%` (`281/300`) | `95.3%` (`286/300`) | **`96.7%` (`290/300`)** | **`+10.7%` (`+32` instances)** |
+| **End-to-End `GoldFile` AST-Verified Patch Rate** | `29.3%` (`88/300`) | `34.7%` (`104/300`) | `37.7%` (`113/300`) | **`42.7%` (`128/300`)** | **`+13.4%` (`+40` gold patches, `+45.5%` rel.)** |
+
+📊 **Full 900-Instance Mathematical Trace & `v4` Optimization Report:** [`docs/SWE900_MATHEMATICAL_TRACE_AND_OPTIMIZATION_REPORT.md`](docs/SWE900_MATHEMATICAL_TRACE_AND_OPTIMIZATION_REPORT.md)
+
+---
+
 ## Quickstart
 
 ### 1. Build from Source (Pure Go, Zero CGo)

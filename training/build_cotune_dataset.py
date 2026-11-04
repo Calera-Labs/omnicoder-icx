@@ -124,19 +124,47 @@ def recall_vln_hint(repo: str, issue_text: str, file_path: str) -> str:
     return best_hint
 
 
-def load_swebench_rows(max_rows: int = 800) -> list[dict[str, Any]]:
+def load_swebench_rows(max_rows: int = 800, exclude_swe300: bool = True) -> list[dict[str, Any]]:
+    lite_files = sorted(
+        glob.glob(str(HF_DATASETS_DIR / "**" / "*swe-bench_lite*test*.arrow"), recursive=True)
+        + glob.glob(
+            str(HF_CACHE_DIR / "datasets--princeton-nlp--SWE-bench_Lite" / "**" / "*test*.parquet"),
+            recursive=True,
+        )
+    )
+    swe300_ids: set[str] = set()
+    if exclude_swe300:
+        for lf in lite_files:
+            try:
+                if lf.endswith(".parquet"):
+                    lt = pq.read_table(lf)
+                else:
+                    with pa.memory_map(lf, "r") as source:
+                        try:
+                            lt = ipc.open_stream(source).read_all()
+                        except Exception:
+                            lt = ipc.open_file(source).read_all()
+                for item in lt.to_pylist():
+                    if item.get("instance_id"):
+                        swe300_ids.add(item["instance_id"])
+            except Exception:
+                pass
+
     data_files = sorted(
         glob.glob(str(HF_DATASETS_DIR / "**" / "*swe-bench_verified*.arrow"), recursive=True)
-        + glob.glob(str(HF_DATASETS_DIR / "**" / "*swe-bench_lite*.arrow"), recursive=True)
         + glob.glob(
             str(HF_CACHE_DIR / "datasets--princeton-nlp--SWE-bench_Verified" / "**" / "*.parquet"),
             recursive=True,
         )
-        + glob.glob(
-            str(HF_CACHE_DIR / "datasets--princeton-nlp--SWE-bench_Lite" / "**" / "*.parquet"),
-            recursive=True,
-        )
     )
+    if not exclude_swe300:
+        data_files += sorted(
+            glob.glob(str(HF_DATASETS_DIR / "**" / "*swe-bench_lite*.arrow"), recursive=True)
+            + glob.glob(
+                str(HF_CACHE_DIR / "datasets--princeton-nlp--SWE-bench_Lite" / "**" / "*.parquet"),
+                recursive=True,
+            )
+        )
     rows: list[dict[str, Any]] = []
     seen_ids = set()
     for df in data_files:
@@ -154,6 +182,8 @@ def load_swebench_rows(max_rows: int = 800) -> list[dict[str, Any]]:
             pylist = table.to_pylist()
             for item in pylist:
                 iid = item.get("instance_id", "")
+                if exclude_swe300 and iid in swe300_ids:
+                    continue
                 if iid and iid not in seen_ids and item.get("patch") and item.get("problem_statement"):
                     seen_ids.add(iid)
                     rows.append(item)

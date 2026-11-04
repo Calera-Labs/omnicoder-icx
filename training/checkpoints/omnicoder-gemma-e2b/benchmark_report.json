@@ -1,0 +1,214 @@
+{
+  "timestamp": "2026-11-03T21:37:50Z",
+  "total_benchmark_sec": 1035.74,
+  "vram_envelope": {
+    "measured_base_4bit_vram_mb": 2105.2,
+    "measured_peak_benchmark_vram_mb": 2257.8,
+    "rtx3060_budget_limit_mb": 2500.0,
+    "rtx3060_compliant": true
+  },
+  "layer_a_omnicoder_micro_cards": {
+    "GateLocate": {
+      "legacy_chars": 206,
+      "compact_chars": 96,
+      "chars_saved": 110,
+      "reduction_pct": 53.4
+    },
+    "GateReproducer": {
+      "legacy_chars": 288,
+      "compact_chars": 167,
+      "chars_saved": 121,
+      "reduction_pct": 42.0
+    },
+    "GateEdit": {
+      "legacy_chars": 267,
+      "compact_chars": 126,
+      "chars_saved": 141,
+      "reduction_pct": 52.8
+    },
+    "GateHeal": {
+      "legacy_chars": 307,
+      "compact_chars": 155,
+      "chars_saved": 152,
+      "reduction_pct": 49.5
+    }
+  },
+  "layer_b_vln_swe_cartridge": {
+    "go_test_passed": true,
+    "gob_file_exists": true,
+    "gob_size_bytes": 10639,
+    "per_query_recall_latency_ms": 0.18,
+    "suite_wall_ms": 592.18,
+    "out_of_basin_hallucination_rate_pct": 0.0,
+    "vram_usage_mb": 0.0
+  },
+  "ablation_study": {
+    "1_base_gemma4_e2b_zeroshot": {
+      "beam_k": 1,
+      "vln_enabled": false,
+      "compact_cards": false,
+      "adapter_enabled": false,
+      "elapsed_sec": 64.32,
+      "GateLocate": {
+        "samples": 8,
+        "json_validity_pct": 12.5,
+        "top1_file_accuracy_pct": 0.0,
+        "top1_symbol_accuracy_pct": 0.0,
+        "top3_file_recall_pct": 0.0
+      },
+      "GateReproducer": {
+        "samples": 8,
+        "json_validity_pct": 0.0,
+        "valid_python_ast_pct": 0.0,
+        "target_module_import_pct": 0.0
+      },
+      "GateEdit": {
+        "samples": 8,
+        "json_validity_pct": 37.5,
+        "valid_editblock_pct": 0.0,
+        "exact_search_anchor_pct": 0.0,
+        "mean_repair_token_f1_pct": 0.0
+      },
+      "GateHeal": {
+        "samples": 8,
+        "json_validity_pct": 100.0,
+        "valid_editblock_pct": 0.0,
+        "exact_search_anchor_pct": 0.0,
+        "mean_repair_token_f1_pct": 0.0,
+        "throughput_tokens_per_sec": 22.6
+      }
+    },
+    "2_cotuned_e2b_no_vln_k1": {
+      "beam_k": 1,
+      "vln_enabled": false,
+      "compact_cards": true,
+      "adapter_enabled": true,
+      "elapsed_sec": 230.06,
+      "GateLocate": {
+        "samples": 8,
+        "json_validity_pct": 100.0,
+        "top1_file_accuracy_pct": 100.0,
+        "top1_symbol_accuracy_pct": 100.0,
+        "top3_file_recall_pct": 100.0
+      },
+      "GateReproducer": {
+        "samples": 8,
+        "json_validity_pct": 100.0,
+        "valid_python_ast_pct": 100.0,
+        "target_module_import_pct": 100.0
+      },
+      "GateEdit": {
+        "samples": 8,
+        "json_validity_pct": 100.0,
+        "valid_editblock_pct": 75.0,
+        "exact_search_anchor_pct": 62.5,
+        "mean_repair_token_f1_pct": 62.3
+      },
+      "GateHeal": {
+        "samples": 8,
+        "json_validity_pct": 100.0,
+        "valid_editblock_pct": 37.5,
+        "exact_search_anchor_pct": 12.5,
+        "mean_repair_token_f1_pct": 33.6,
+        "throughput_tokens_per_sec": 16.7
+      }
+    },
+    "3_full_organism_vln_speculative": {
+      "beam_k": 4,
+      "vln_enabled": true,
+      "compact_cards": true,
+      "adapter_enabled": true,
+      "elapsed_sec": 425.53,
+      "GateLocate": {
+        "samples": 8,
+        "json_validity_pct": 100.0,
+        "top1_file_accuracy_pct": 100.0,
+        "top1_symbol_accuracy_pct": 100.0,
+        "top3_file_recall_pct": 100.0
+      },
+      "GateReproducer": {
+        "samples": 8,
+        "json_validity_pct": 100.0,
+        "valid_python_ast_pct": 100.0,
+        "target_module_import_pct": 100.0
+      },
+      "GateEdit": {
+        "samples": 8,
+        "json_validity_pct": 100.0,
+        "valid_editblock_pct": 100.0,
+        "exact_search_anchor_pct": 87.5,
+        "mean_repair_token_f1_pct": 81.4
+      },
+      "GateHeal": {
+        "samples": 8,
+        "json_validity_pct": 100.0,
+        "valid_editblock_pct": 62.5,
+        "exact_search_anchor_pct": 37.5,
+        "mean_repair_token_f1_pct": 53.9,
+        "throughput_tokens_per_sec": 30.4
+      }
+    }
+  },
+  "live_unmocked_multirepo_solve": {
+    "total_live_tasks": 5,
+    "resolved_fail_to_pass": 1,
+    "resolution_rate_pct": 20.0,
+    "tasks": [
+      {
+        "task_id": "django__django-14373",
+        "framework": "django",
+        "target_file": "django/utils/dateformat.py",
+        "solve_exit_code": 0,
+        "elapsed_sec": 69.49,
+        "patch_generated": false,
+        "fail_to_pass_verified": false,
+        "vln_hint_injected": false,
+        "patch_preview": ""
+      },
+      {
+        "task_id": "pydata__xarray-4075",
+        "framework": "xarray",
+        "target_file": "xarray/core/weighted.py",
+        "solve_exit_code": 0,
+        "elapsed_sec": 103.35,
+        "patch_generated": false,
+        "fail_to_pass_verified": false,
+        "vln_hint_injected": false,
+        "patch_preview": ""
+      },
+      {
+        "task_id": "pallets__flask-4045",
+        "framework": "flask",
+        "target_file": "src/flask/blueprints.py",
+        "solve_exit_code": 0,
+        "elapsed_sec": 39.7,
+        "patch_generated": false,
+        "fail_to_pass_verified": false,
+        "vln_hint_injected": false,
+        "patch_preview": ""
+      },
+      {
+        "task_id": "matplotlib__matplotlib-23314",
+        "framework": "matplotlib",
+        "target_file": "lib/mpl_toolkits/mplot3d/axes3d.py",
+        "solve_exit_code": 0,
+        "elapsed_sec": 48.81,
+        "patch_generated": false,
+        "fail_to_pass_verified": false,
+        "vln_hint_injected": false,
+        "patch_preview": ""
+      },
+      {
+        "task_id": "pytest-dev__pytest-5227",
+        "framework": "pytest",
+        "target_file": "src/_pytest/logging.py",
+        "solve_exit_code": 0,
+        "elapsed_sec": 44.75,
+        "patch_generated": true,
+        "fail_to_pass_verified": true,
+        "vln_hint_injected": true,
+        "patch_preview": "diff --git a/src/_pytest/logging.py b/src/_pytest/logging.py\nindex 469df0e..1038b1d 100644\n--- a/src/_pytest/logging.py\n+++ b/src/_pytest/logging.py\n@@ -1,2 +1,2 @@\n-DEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(message)s\"\n+DEFAULT_LOG_FORMAT = \"%(filename)-25s %(lineno)4d %(levelname)-8s %(name)s:%(filename)s:%(lineno)d %(message)s\"\n DEFAULT_LOG_DATE_FORMAT = \"%H:%M:%S\""
+      }
+    ]
+  }
+}

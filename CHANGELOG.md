@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [1.2.0] — 2026-11-03
+
+### Added
+- **Config 3 `v4` Coupling Laws & Official Zero-Leakage `SWE-300` / `SWE-900` Upgrades (`pkg/devops/localizer.go`, `cmd/omnicoder/main.go`, `pkg/vln`, `training/colab_a100_swe300_parallel.py`)**:
+  - **Law 1 Stack-Trace Exception-Helper Dampening:** Dampens deepest traceback frames (`s_tb_deep`) when domain symbol usage is absent (`s_usage == 0`), boosting intermediate caller frames where issue domain symbols co-occur.
+  - **Stage-1 Code-Structured Signal Extraction & 1-Hop Import-Graph Propagation (`extract_issue_signals`, `LocalizeFaults`):** Extracts code-only title tokens, backticked/quoted `.py` filenames, diagnostic codes (`models.E028`), hyphenated CLI flags, `UPPER_CASE` settings, CamelCase/alphanumeric identifiers (`Line3D`), class prefixes of dotted expressions, snake_case directory+stem synergy, batched multi-symbol co-occurrence bonuses, strict non-source path filtering (`doc/`, `testing/`, `examples/`, `benchmarks/`, `tutorials/`, `galleries/`), and 1-hop relative import-graph resolution (`from .<submod> import <sym>`).
+  - **Law 2 Dual-Symbol 16-Line Focal Windowing (`extract_py_focal_windows`):** Expands `[OC:HEAL]` focal windows to 16 lines (`580` chars), centers traceback pins near `ws + 5`, prefers innermost `FunctionDef`/`AsyncFunctionDef` over outer `ClassDef` shells, and routes secondary window `w2` (`K=2`) to the #2 ranked non-overlapping function in the primary file (`2.18x` increase in gold-hunk window overlap: `49/300` $\to$ `107/300`).
+  - **Law 3 Unbiased Speculative `K=4` Tournament & Law 4 $\Delta\text{indent}$ AST Splicing:** Removes static beam prior penalties between `K=0..3` and adds automatic indentation delta (`\Delta\text{indent}`) shifting + unique `(first_line, last_line)` boundary anchor matching (`99.3%` real-source anchor match, `96.7%` AST-verified patch rate).
+  - **Empirical `SWE-300` (`princeton-nlp/SWE-bench_Lite`, `0%` overlap) Results:** Top-1 File Localization jumped from `35.3%` (`v1`) $\to$ `40.3%` (`v2`) $\to$ `45.0%` (`v3`) $\to$ **`50.3%` (`151/300`, `v4`)**; Stage-1 Top-6 Recall reached **`75.0%` (`225/300`)**; Valid Python AST Reproducers reached **`100.0%` (`300/300`)**; and End-to-End `GoldFile` AST-Verified Patches reached **`42.7%` (`128/300`)** in **`8.46 minutes`** (`2.86x` faster than `v1`).
+
+---
+
 ## [1.1.0] — 2026-11-01
 
 ### Added

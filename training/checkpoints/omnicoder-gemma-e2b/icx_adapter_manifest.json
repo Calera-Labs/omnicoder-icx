@@ -1,0 +1,91 @@
+{
+  "adapter_name": "omnicoder-gemma-e2b",
+  "target_runtime_model": "google/gemma-4-e2b",
+  "trained_on_snapshot": "C:\\Users\\livin\\.cache\\huggingface\\hub\\models--google--gemma-4-e2b\\snapshots\\63db66a33dc06d58c02b1e887446e103c202602c",
+  "resolved_base_model": "google/gemma-4-e2b",
+  "gpu_trained_on": "NVIDIA GeForce RTX 4090",
+  "lora_config": {
+    "r": 64,
+    "lora_alpha": 128,
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ],
+    "trainable_params": 96632832,
+    "total_params": 4725202176
+  },
+  "metrics": {
+    "initial_eval_loss": 0.7647,
+    "post_sft_eval_loss": 0.1556,
+    "post_dpo_eval_loss": 0.1542,
+    "dpo_preference_accuracy_pct": 100.0,
+    "sft_elapsed_sec": 88.25,
+    "dpo_elapsed_sec": 31.57
+  },
+  "vram_telemetry": {
+    "measured_base_4bit_vram_mb": 1920.9,
+    "peak_rtx4090_training_vram_mb": 19805.6,
+    "rtx3060_e2b_4bit_weights_mb": 1920.9,
+    "rtx3060_k8_kv_cache_mb": 112.0,
+    "rtx3060_total_runtime_vram_mb": 2032.9,
+    "rtx3060_under_2500mb_budget": true
+  },
+  "sft_history": [
+    {
+      "step": 1,
+      "loss": 0.5286,
+      "tok_per_sec": 1901.8
+    },
+    {
+      "step": 10,
+      "loss": 0.2,
+      "tok_per_sec": 1334.9
+    },
+    {
+      "step": 20,
+      "loss": 0.0714,
+      "tok_per_sec": 1526.1
+    },
+    {
+      "step": 30,
+      "loss": 0.1144,
+      "tok_per_sec": 1589.9
+    },
+    {
+      "step": 40,
+      "loss": 0.1303,
+      "tok_per_sec": 1648.0
+    }
+  ],
+  "dpo_history": [
+    {
+      "step": 1,
+      "dpo_loss": 0.7225,
+      "reward_margin": 0.0035,
+      "preference_accuracy_pct": 100.0
+    },
+    {
+      "step": 5,
+      "dpo_loss": 0.7147,
+      "reward_margin": 0.1515,
+      "preference_accuracy_pct": 100.0
+    },
+    {
+      "step": 10,
+      "dpo_loss": 0.6999,
+      "reward_margin": 0.4888,
+      "preference_accuracy_pct": 100.0
+    },
+    {
+      "step": 15,
+      "dpo_loss": 0.7129,
+      "reward_margin": 0.5303,
+      "preference_accuracy_pct": 100.0
+    }
+  ]
+}

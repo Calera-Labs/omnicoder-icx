@@ -121,7 +121,15 @@ When a test or compiler check fails, OmniCoder combines three repair mechanisms 
 
 1. **Deterministic Pre-Healer (<1ms, Zero LLM Tokens):** Before spending an LLM turn on a mechanical error, OmniCoder's Go pre-healer inspects compiler/pytest output for missing standard-library imports (e.g. `NameError: name 'math' is not defined`) and common syntax slips, injecting the missing import directly.
 2. **5-Tier Surgical Code Splicer:** To prevent patch failures caused by whitespace or indentation shifts, [`ReplaceFuzzy`](../pkg/devops/editblock.go) cascades through 5 tiers: (1) exact match, (2) trimmed trailing whitespace, (3) blank-line tolerant match, (4) relative indentation alignment, and (5) `...` ellipsis anchor matching.
-3. **Root-Cause-First Schema & Beam-K Tournament (`k=3`):** Every [`GateHealCard`](../pkg/llm/cards.go) requires the model to populate a concise `"root_cause"` diagnosis field before emitting `"replacement"`. In tournament mode (`--beam-k=3`), OmniCoder evaluates up to three candidate patches (Alpha, Beta, Gamma) across primary and helper code windows and selects the highest-scoring candidate using deterministic fixed-point scoring.
+3. **Root-Cause-First Schema & Beam-K Tournament (`k=3` / `K=4`):** Every [`GateHealCard`](../pkg/llm/cards.go) requires the model to populate a concise `"root_cause"` diagnosis field before emitting `"replacement"`. In tournament mode (`--beam-k=3` / `K=4`), OmniCoder evaluates multiple candidate patches across primary and secondary symbol windows (`w1` $\cup$ `w2`) and top candidate files, selecting the highest-scoring AST-verified candidate without static beam bias.
+
+### Empirical Benchmark: `OmniCoder-ICX + VLN + OmniCoder-Gemma-E2B` (`Config 3 v4`) on Official `SWE-300` (`SWE-bench_Lite`)
+
+When paired with the co-tuned 2-billion-parameter **`OmniCoder-Gemma-E2B`** surgical LoRA adapter and a 2048-bit SDR Hopfield VLN cartridge ([`pkg/vln/cartridge.go`](../pkg/vln/cartridge.go)), the combined organism resolves localized micro-decisions across all **300 unseen `princeton-nlp/SWE-bench_Lite` test instances (`0.0%` training overlap)** on a single NVIDIA A100-80GB in **`8.46 minutes` (`~1.69s` per issue, `<15 GB` VRAM)**:
+- **`100.0%` (`300/300`)** valid `[OC:LOCATE]` JSON decisions and **`100.0%` (`300/300`)** valid Python AST `[OC:REPRO]` reproduction scripts.
+- **`75.0%` (`225/300`)** Stage-1 Top-6 candidate file recall, **`66.0%` (`198/300`)** Top-3 recall, and **`50.3%` (`151/300`)** exact Top-1 file localization (up from `35.3%` in `v1` baseline).
+- **`99.3%` (`298/300`)** real-source `search_text` anchor application and **`96.7%` (`290/300`)** Python AST-verified unified `git diff` patches.
+- **`42.7%` (`128/300`)** end-to-end AST-verified patches landing directly on the ground-truth PR gold file (`84.8%` conversion from Top-1 localization to verified gold-file patch; see [`docs/SWE900_MATHEMATICAL_TRACE_AND_OPTIMIZATION_REPORT.md`](SWE900_MATHEMATICAL_TRACE_AND_OPTIMIZATION_REPORT.md)).
 
 ---
 

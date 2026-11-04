@@ -44,3 +44,12 @@ scratch/
 *.env
 .DS_Store
 Thumbs.db
+
+# Large Model Weights, Caches & Generated Training JSONLs
+*.gguf
+*.safetensors
+training/checkpoints/**/tokenizer.json
+training/swe300_repos_cache/
+training/data/*.jsonl
+training/swe300_predictions.jsonl
+

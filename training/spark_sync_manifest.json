@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-11-03T19:57:40Z",
+  "elapsed_sec": 0.003,
+  "model": {
+    "requested_model": "google/gemma-4-e2b",
+    "resolved_model_id": "google/gemma-4-e2b",
+    "snapshot_path": "C:\\Users\\livin\\.cache\\huggingface\\hub\\models--google--gemma-4-e2b\\snapshots\\63db66a33dc06d58c02b1e887446e103c202602c",
+    "source": "local_hf_cache_e2b"
+  },
+  "swebench_cache": {
+    "swebench_verified_arrows": [
+      "C:\\Users\\livin\\.cache\\huggingface\\datasets\\princeton-nlp___swe-bench_verified\\default\\0.0.0\\c104f840cc67f8b6eec6f759ebc8b2693d585d4a\\swe-bench_verified-test.arrow",
+      "C:\\Users\\livin\\.cache\\huggingface\\hub\\datasets--princeton-nlp--SWE-bench_Verified\\snapshots\\c104f840cc67f8b6eec6f759ebc8b2693d585d4a\\data\\test-00000-of-00001.parquet"
+    ],
+    "swebench_lite_arrows": [
+      "C:\\Users\\livin\\.cache\\huggingface\\datasets\\princeton-nlp___swe-bench_lite\\default\\0.0.0\\6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2\\swe-bench_lite-dev.arrow",
+      "C:\\Users\\livin\\.cache\\huggingface\\datasets\\princeton-nlp___swe-bench_lite\\default\\0.0.0\\6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2\\swe-bench_lite-test.arrow",
+      "C:\\Users\\livin\\.cache\\huggingface\\hub\\datasets--princeton-nlp--SWE-bench_Lite\\snapshots\\6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2\\data\\dev-00000-of-00001.parquet",
+      "C:\\Users\\livin\\.cache\\huggingface\\hub\\datasets--princeton-nlp--SWE-bench_Lite\\snapshots\\6ec7bb89b9342f664a54a6e0a6ea6501d3437cc2\\data\\test-00000-of-00001.parquet"
+    ],
+    "verified_ready": true,
+    "lite_ready": true
+  },
+  "vln_cartridge": {
+    "gob_path": "C:\\Users\\livin\\OneDrive\\Desktop\\2027 Projects\\omnicoder-icx\\models\\vln_swe_code.gob",
+    "exists": true,
+    "size_bytes": 10639,
+    "vln_repo_path": "c:\\Users\\livin\\OneDrive\\Desktop\\2027 Projects\\VLN-v22.1\\calera-volume-net",
+    "vln_repo_exists": true
+  },
+  "rtx3060_target_envelope": {
+    "max_vram_mb": 2500,
+    "max_host_ram_mb": 250,
+    "micro_card_token_budget": 400,
+    "speculative_beam_k": 8
+  }
+}

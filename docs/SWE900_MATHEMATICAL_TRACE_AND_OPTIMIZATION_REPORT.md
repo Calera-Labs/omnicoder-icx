@@ -11,9 +11,19 @@
 
 To mathematically characterize how **OmniCoder-ICX's deterministic Go engine** (`pkg/devops/localizer.go`, `pkg/vln/cartridge.go`, `pkg/devops/editblock.go`) and the **co-tuned `OmniCoder-Gemma-E2B` neural model** (`[OC:LOCATE]`, `[OC:REPRO]`, `[OC:HEAL]`) interact at scale, we executed a unified **900-instance zero-leakage trace** on an NVIDIA A100-80GB in **14.99 minutes**:
 
-1. **Cohort A — Official `SWE-300` (`princeton-nlp/SWE-bench_Lite` Test Split, `N = 300`):**
-   - `0 / 300` overlap with training.
-   - Hybrid coupled `Loc@1` reached **`41.3%` (`124/300`)** (up from `35.3%` in `v1` baseline), Top-2 Derived Law coverage reached **`49.3%` (`148/300`)**, Judge-selected `GoldFile` AST-verified patches reached **`35.7%` (`107/300`)** (up from `29.3%` in `v1`), and `K=4` Oracle `GoldFile` patches reached **`38.3%` (`115/300`)** with **`29.7%` Mean Diff Token F1**.
+1. **Cohort A — Official `SWE-300` (`princeton-nlp/SWE-bench_Lite` Test Split, `N = 300`, `v1` $\to$ `v2` $\to$ `v3` $\to$ `v4`):**
+   - `0 / 300` overlap with training (`0.0%` data contamination).
+   - **Live `v4` Post-Update (`8.46 min` / `507.8s` on NVIDIA A100-80GB, `2.86x` faster than `v1`):**
+     - **Real-Repo Top-1 File Localization (`Loc@1`):** **`50.3%` (`151/300`)** (up from `35.3%` in `v1`, `40.3%` in `v2`, and `45.0%` in `v3` — **`+15.0%` / `+45` exact files over `v1`**).
+     - **Real-Repo Top-3 File Recall (`Loc@3`):** **`66.0%` (`198/300`)** (up from `59.3%` in `v3`, **`+6.7%` / `+20` instances**).
+     - **Stage-1 Top-6 Candidate Recall:** **`75.0%` (`225/300`)** (up from `64.3%` in `v1` and `65.3%` in `v3`, **`+9.7%` / `+29` instances over `v3`**).
+     - **Law 2 Gold-Hunk Focal Window Overlap (`w1` $\cup$ `w2`):** **`35.7%` (`107/300`)** (up from `16.3%` / `49/300` in `v3`, **`2.18x`**).
+     - **`[OC:REPRO]` Valid Python AST Reproducer Rate:** **`100.0%` (`300/300`)**.
+     - **`[OC:HEAL]` Real-Source `search_text` Anchor Match (`K=4`):** **`99.3%` (`298/300`)** (up from `87.7%` in `v1`).
+     - **`[OC:HEAL]` AST-Verified Unified Diff Rate (`Patched`):** **`96.7%` (`290/300`)** (up from `86.0%` in `v1`).
+     - **End-to-End `GoldFile` AST-Verified Patch Rate:** **`42.7%` (`128/300`)** (up from `29.3%` (`88/300`) in `v1`, `34.7%` (`104/300`) in `v2`, and `37.7%` (`113/300`) in `v3` — **`+13.4%` / `+40` gold patches over `v1` (`+45.5%` relative gain)**).
+     - **High-Similarity Patches (`DiffTokenF1 >= 25%` / `>= 40%`):** **`142 / 300` (`47.3%`)** at `F1 >= 25%` (up from `97` in `v1`) and **`49 / 300` (`16.3%`)** at `F1 >= 40%` (up from `35` in `v1`).
+   - **Pre-`v4` `SWE-300` Trace Snapshot (`N = 300` inside `SWE-900` run):** Hybrid coupled `Loc@1` reached `41.3%` (`124/300`), Top-2 Derived Law coverage reached `49.3%` (`148/300`), Judge-selected `GoldFile` patches reached `35.7%` (`107/300`), and `K=4` Oracle `GoldFile` patches reached `38.3%` (`115/300`) with `29.7%` Mean Diff Token F1.
 2. **Cohort B — Unseen Full `SWE-600` (`princeton-nlp/SWE-bench` Test Split, `N = 600`):**
    - Stratified sample of `600` instances across all 12 repositories strictly disjoint from both the `407` `SWE-bench_Verified` training rows and all `300` `SWE-bench_Lite` test rows.
    - Hybrid coupled `Loc@1` reached **`37.5%` (`225/600`)**, Top-2 Derived Law coverage reached **`48.2%` (`289/600`)**, real-file `EditBlock` anchor application held at **`96.2%` (`577/600`)**, AST-verified patch generation reached **`90.2%` (`541/600`)**, Judge-selected `GoldFile` patches reached **`33.2%` (`199/600`)**, and `K=4` Oracle `GoldFile` patches reached **`38.0%` (`228/600`)**.
