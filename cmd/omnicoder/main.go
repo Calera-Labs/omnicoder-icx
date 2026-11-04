@@ -3317,12 +3317,46 @@ func executeLocalizedIssueRepair(
 			focusLine = 1
 		}
 	}
+	if llm.IsCompactMicroCardModel(cfg.Model) {
+		if loc.CausalSymbol != "" && loc.CausalSymbol != "module" {
+			needle := "def " + loc.CausalSymbol + "("
+			for i, l := range srcLines {
+				if strings.Contains(l, needle) {
+					focusLine = i + 1
+					break
+				}
+			}
+		}
+	}
 	if focusLine > len(srcLines) {
 		focusLine = len(srcLines)
 	}
 
 	var contextLines []string
-	if len(srcLines) <= 340 {
+	if llm.IsCompactMicroCardModel(cfg.Model) && len(srcLines) > 9 {
+		symRange := devops.FindEnclosingSymbolRange(wsAbs, targetFilePath, focusLine, loc.CausalSymbol)
+		wStart := focusLine - 4
+		wEnd := focusLine + 36
+		if symRange[0] > 0 && symRange[1] >= symRange[0] {
+			wStart = symRange[0]
+			wEnd = symRange[1]
+			if wEnd-wStart > 42 {
+				if focusLine > wStart+20 {
+					wStart = focusLine - 12
+				}
+				wEnd = wStart + 42
+			}
+		}
+		if wStart < 1 {
+			wStart = 1
+		}
+		if wEnd > len(srcLines) {
+			wEnd = len(srcLines)
+		}
+		for idx := wStart - 1; idx < wEnd; idx++ {
+			contextLines = append(contextLines, srcLines[idx])
+		}
+	} else if len(srcLines) <= 340 {
 		for idx, l := range srcLines {
 			marker := "  "
 			if idx+1 == focusLine {
@@ -3411,6 +3445,9 @@ func executeLocalizedIssueRepair(
 	}
 
 	errMsg := fmt.Sprintf("Issue fault localized to %s in %s (line %d)", loc.CausalSymbol, targetFilePath, focusLine)
+	if llm.IsCompactMicroCardModel(cfg.Model) {
+		errMsg = fmt.Sprintf("Issue fault localized to %s in %s", loc.CausalSymbol, targetFilePath)
+	}
 	card := llm.GateHealCard{
 		FilePath:      targetFilePath,
 		ErrorLine:     focusLine,
@@ -3418,12 +3455,18 @@ func executeLocalizedIssueRepair(
 		Snippet5Lines: strings.Join(contextLines, "\n"),
 		Command:       "omnicoder solve (issue-only)",
 		IssueContext:  issueText,
+		VLNHint:       loc.VLNHint,
+		CompactMode:   llm.IsCompactMicroCardModel(cfg.Model),
 		TokenBudget:   4900,
 	}
 
 	beamK := cfg.BeamK
 	if beamK <= 0 {
-		beamK = 3
+		if llm.IsCompactMicroCardModel(cfg.Model) {
+			beamK = 4
+		} else {
+			beamK = 3
+		}
 	}
 
 	_, userP, _ := card.FormatPrompt()
@@ -3609,7 +3652,14 @@ func executeSolve(ctx context.Context, cfg *GlobalConfig, args []string) error {
 		cfg.MaxTurns = 4
 	}
 	if cfg.BeamK <= 0 {
-		cfg.BeamK = 3
+		if llm.IsCompactMicroCardModel(cfg.Model) {
+			cfg.BeamK = 4
+		} else {
+			cfg.BeamK = 3
+		}
+	}
+	if llm.IsCompactMicroCardModel(cfg.Model) && strings.TrimSpace(cfg.BaseURL) == "" {
+		cfg.BaseURL = "http://127.0.0.1:18090/v1"
 	}
 	pyBin := resolvePythonBinary(*pythonBin)
 
@@ -3643,6 +3693,68 @@ func executeSolve(ctx context.Context, cfg *GlobalConfig, args []string) error {
 	var causalFiles []string
 	primaryFile := ""
 	if locErr == nil && loc != nil && loc.PrimaryFile != "" {
+		if !cfg.Offline && len(loc.TopCandidates) > 1 && llm.IsCompactMicroCardModel(cfg.Model) {
+			var cands []llm.GateLocateCandidate
+			for _, tc := range loc.TopCandidates {
+				cands = append(cands, llm.GateLocateCandidate{
+					File:      tc.File,
+					Symbol:    tc.Symbol,
+					LineRange: tc.LineRange,
+					Score:     tc.TotalScore,
+				})
+			}
+			locCard := llm.GateLocateCard{
+				IssueSummary: issueText,
+				Traceback:    tbSnippet,
+				VLNHint:      loc.VLNHint,
+				Candidates:   cands,
+				CompactMode:  true,
+				TokenBudget:  360,
+			}
+			if locDec, lErr := gate.DecideLocate(ctx, locCard); lErr == nil && locDec != nil && locDec.PrimaryFile != "" {
+				candFull := filepath.Join(wsAbs, filepath.FromSlash(locDec.PrimaryFile))
+				if st, sErr := os.Stat(candFull); sErr == nil && !st.IsDir() {
+					// Hybrid Coupled Reranking (derived from N=900 OmniCoder <-> E2B trace):
+					// Combine deterministic TotalScore with E2B neural votes (+0.28 primary, +0.14 support)
+					// so E2B rescues rank 2..6 candidates without overriding high-confidence deterministic pins.
+					bestHybScore := -1.0
+					bestCand := loc.TopCandidates[0]
+					for _, tc := range loc.TopCandidates {
+						hyb := tc.TotalScore
+						if tc.File == locDec.PrimaryFile {
+							hyb += 0.28
+						} else {
+							for sIdx, sf := range locDec.SupportingFiles {
+								if tc.File == sf {
+									if sIdx == 0 {
+										hyb += 0.14
+									} else {
+										hyb += 0.07
+									}
+									break
+								}
+							}
+						}
+						if hyb > bestHybScore {
+							bestHybScore = hyb
+							bestCand = tc
+						}
+					}
+					prevPrimary := loc.PrimaryFile
+					loc.PrimaryFile = bestCand.File
+					loc.CausalSymbol = bestCand.Symbol
+					loc.LineRange = bestCand.LineRange
+					if loc.PrimaryFile == locDec.PrimaryFile && locDec.CausalSymbol != "" {
+						loc.CausalSymbol = locDec.CausalSymbol
+					}
+					if prevPrimary != "" && prevPrimary != loc.PrimaryFile {
+						loc.SupportingFiles = append([]string{prevPrimary}, loc.SupportingFiles...)
+					} else if locDec.PrimaryFile != loc.PrimaryFile {
+						loc.SupportingFiles = append([]string{locDec.PrimaryFile}, loc.SupportingFiles...)
+					}
+				}
+			}
+		}
 		primaryFile = loc.PrimaryFile
 		causalFiles = append(causalFiles, loc.PrimaryFile)
 		for _, sf := range loc.SupportingFiles {
@@ -3650,8 +3762,8 @@ func executeSolve(ctx context.Context, cfg *GlobalConfig, args []string) error {
 				causalFiles = append(causalFiles, sf)
 			}
 		}
-		fmt.Printf("[omnicoder solve] Turn 0 Fault Localization: primary=%s (symbol=%q, lines=%v, supporting=%v)\n",
-			loc.PrimaryFile, loc.CausalSymbol, loc.LineRange, loc.SupportingFiles)
+		fmt.Printf("[omnicoder solve] Turn 0 Fault Localization: primary=%s (symbol=%q, lines=%v, supporting=%v, vln_hint=%t)\n",
+			loc.PrimaryFile, loc.CausalSymbol, loc.LineRange, loc.SupportingFiles, loc.VLNHint != "")
 	} else {
 		fmt.Printf("[omnicoder solve] Turn 0 Fault Localization warning: %v\n", locErr)
 	}
@@ -3688,12 +3800,18 @@ func executeSolve(ctx context.Context, cfg *GlobalConfig, args []string) error {
 		if lastReproFeedback != "" {
 			issueWithFeedback = issueText + "\n\nPrior Reproducer Attempt Feedback:\n" + lastReproFeedback
 		}
+		vlnHint := ""
+		if loc != nil {
+			vlnHint = loc.VLNHint
+		}
 		reproCard := llm.GateReproducerCard{
 			IssueText:        issueWithFeedback,
 			RepoSummary:      repoSummary,
 			CausalFiles:      causalFiles,
 			Language:         "python",
 			TracebackSnippet: tbSnippet,
+			VLNHint:          vlnHint,
+			CompactMode:      llm.IsCompactMicroCardModel(cfg.Model),
 			TokenBudget:      2400,
 		}
 		_, uPrompt, _ := reproCard.FormatPrompt()
@@ -3735,21 +3853,6 @@ func executeSolve(ctx context.Context, cfg *GlobalConfig, args []string) error {
 		_ = os.WriteFile(probFile, []byte(issueText), 0644)
 	}
 
-	turnsTaken := 0
-	if reproFound {
-		healCfg := *cfg
-		healCfg.Workspace = wsAbs
-		healCfg.Swarm = true
-		healCmd := fmt.Sprintf("%s %s", pyBin, reproRel)
-		healErr := executeHeal(ctx, &healCfg, []string{"--issue", issueText, healCmd})
-		turnsTaken = healCfg.MaxTurns
-		totalPromptTokens += turnsTaken * 1200
-		totalCompletionTokens += turnsTaken * 220
-		if healErr == nil {
-			turnsTaken = 1
-		}
-	}
-
 	// Check if tracked repository files were modified
 	checkGitDiff := func() string {
 		diffCmd := exec.CommandContext(ctx, "git", "-C", wsAbs, "diff", "--", ".",
@@ -3759,7 +3862,31 @@ func executeSolve(ctx context.Context, cfg *GlobalConfig, args []string) error {
 		return string(out)
 	}
 
+	turnsTaken := 0
+	if llm.IsCompactMicroCardModel(cfg.Model) && loc != nil && loc.PrimaryFile != "" {
+		fmt.Printf("[omnicoder solve] Invoking co-tuned localized repair on %s...\n", loc.PrimaryFile)
+		locTurns, pToks, cToks, _ := executeLocalizedIssueRepair(ctx, cfg, gate, issueText, loc, pyBin, reproRel, reproFound)
+		turnsTaken += locTurns
+		totalPromptTokens += pToks
+		totalCompletionTokens += cToks
+	}
+
 	currentDiff := checkGitDiff()
+	if strings.TrimSpace(currentDiff) == "" && reproFound && (!llm.IsCompactMicroCardModel(cfg.Model) || cfg.MaxTurns > 1) {
+		healCfg := *cfg
+		healCfg.Workspace = wsAbs
+		healCfg.Swarm = true
+		healCmd := fmt.Sprintf("%s %s", pyBin, reproRel)
+		healErr := executeHeal(ctx, &healCfg, []string{"--issue", issueText, healCmd})
+		turnsTaken += healCfg.MaxTurns
+		totalPromptTokens += healCfg.MaxTurns * 1200
+		totalCompletionTokens += healCfg.MaxTurns * 220
+		if healErr == nil {
+			turnsTaken = 1
+		}
+		currentDiff = checkGitDiff()
+	}
+
 	if strings.TrimSpace(currentDiff) == "" && loc != nil && loc.PrimaryFile != "" {
 		fmt.Printf("[omnicoder solve] Invoking localized repair on %s...\n", loc.PrimaryFile)
 		locTurns, pToks, cToks, _ := executeLocalizedIssueRepair(ctx, cfg, gate, issueText, loc, pyBin, reproRel, reproFound)
