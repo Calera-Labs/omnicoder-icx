@@ -3335,14 +3335,14 @@ func executeLocalizedIssueRepair(
 	var contextLines []string
 	if llm.IsCompactMicroCardModel(cfg.Model) && len(srcLines) > 9 {
 		symRange := devops.FindEnclosingSymbolRange(wsAbs, targetFilePath, focusLine, loc.CausalSymbol)
-		wStart := focusLine - 4
-		wEnd := focusLine + 36
+		wStart := focusLine - 5
+		wEnd := focusLine + 20
 		if symRange[0] > 0 && symRange[1] >= symRange[0] {
 			wStart = symRange[0]
 			wEnd = symRange[1]
 			if wEnd-wStart > 42 {
-				if focusLine > wStart+20 {
-					wStart = focusLine - 12
+				if focusLine > wStart+12 {
+					wStart = focusLine - 6
 				}
 				wEnd = wStart + 42
 			}
@@ -3355,6 +3355,25 @@ func executeLocalizedIssueRepair(
 		}
 		for idx := wStart - 1; idx < wEnd; idx++ {
 			contextLines = append(contextLines, srcLines[idx])
+		}
+		// Law 2 Dual-Symbol Window: if primary symbol window is compact (<22 lines), append #2 non-overlapping symbol
+		if wEnd-wStart < 22 {
+			topSyms := devops.FindTopImplementationSymbolsInFile(wsAbs, targetFilePath, issueText, 3)
+			for _, extraSym := range topSyms {
+				if extraSym.LineRange[0] > wEnd || extraSym.LineRange[1] < wStart {
+					s2 := extraSym.LineRange[0]
+					e2 := extraSym.LineRange[1]
+					if e2-s2 > 18 {
+						e2 = s2 + 18
+					}
+					if s2 >= 1 && e2 <= len(srcLines) && e2 >= s2 {
+						for idx := s2 - 1; idx < e2; idx++ {
+							contextLines = append(contextLines, srcLines[idx])
+						}
+						break
+					}
+				}
+			}
 		}
 	} else if len(srcLines) <= 340 {
 		for idx, l := range srcLines {

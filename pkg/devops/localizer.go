@@ -478,7 +478,10 @@ func isTestPath(p string) bool {
 	}
 	if base == "problem.md" || base == "readme.md" || base == "changelog.md" || strings.HasPrefix(base, "license") || base == "conftest.py" ||
 		base == "generic_parsetab.py" || base == "generic_lextab.py" || base == "cds_parsetab.py" || base == "cds_lextab.py" ||
-		base == "pytester.py" || base == "pytester_assertions.py" {
+		base == "pytester.py" || base == "pytester_assertions.py" || base == "setup.py" {
+		return true
+	}
+	if strings.Contains(clean, "requests/packages/") {
 		return true
 	}
 

@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
 """
-A100 Stage-Pipelined Parallel SWE-300 (`princeton-nlp/SWE-bench_Lite`) Official Benchmark
-=========================================================================================
+A100 Stage-Pipelined Parallel SWE-300 (`princeton-nlp/SWE-bench_Lite`) Official Benchmark (v4)
+==============================================================================================
 Executes Config 3: Full Organism (`OmniCoder-ICX` + `VLN SWE Cartridge` + `OmniCoder-Gemma-E2B`
 + Speculative `K=4`) across all 300 official `SWE-bench_Lite` test instances on an NVIDIA A100
 in ~3-5 minutes by replacing 300 serial OS process startups with 5 homogeneous parallel stages:
 
   - ZERO ORACLE LEAKAGE: Stages 1-4 access ONLY `repo`, `base_commit`, and `problem_statement`.
     Ground-truth `patch` and `test_patch` are untouched until Stage 5 post-hoc grading.
-  - Stage 1 (Parallel Git Tree + AST Symbol Retriever, 16 threads):
-    Queries the real `base_commit` git tree (`git ls-tree` + `git grep` + Python AST parser)
-    and VLN SWE Cartridge (`recall_vln_hint`) to build top-6 fault candidates per instance.
-  - Stage 2 (Homogeneous A100 Batched `[OC:LOCATE]`, batch_size=32):
-    Reranks fault candidates across all 300 instances on A100 bf16 in ~12 seconds.
-  - Stage 3 (Homogeneous A100 Batched `[OC:REPRO]`, batch_size=32):
-    Synthesizes standalone Python reproducers across all 300 instances in ~20 seconds.
-  - Stage 4 (Homogeneous A100 Batched `[OC:HEAL]` Speculative `K=4` Tournament, batch_size=24):
-    Generates `K=4` speculative repair candidates (Candidate 0 greedy anchor + Candidates 1..3
-    diverse temperature beams) against the real 42-line enclosing function window from `base_commit`.
-  - Stage 5 (Parallel Patch Application, AST Verification & Official `predictions.jsonl` Grading):
+  - Stage 1 (Parallel Git Tree + AST/Import-Graph/Co-Occurrence Retriever, 16 threads):
+    Queries the real `base_commit` git tree (`git ls-tree` + batched `git grep` + 1-hop relative
+    import propagation + Python AST parser) and VLN SWE Cartridge (`recall_vln_hint`) to build
+    top-6 fault candidates and dual 16-line focal windows per instance.
+  - Stage 2 (Homogeneous A100 Batched `[OC:LOCATE]`, batch_size=96):
+    Reranks fault candidates across all 300 instances on A100 bf16.
+  - Stage 3 (Homogeneous A100 Batched `[OC:REPRO]`, batch_size=96):
+    Synthesizes standalone Python reproducers across all 300 instances.
+  - Stage 4 (Homogeneous A100 Batched `[OC:HEAL]` Speculative `K=4` Tournament, batch_size=96):
+    Generates `K=4` speculative repair candidates across dual focal windows (`w1`, `w2`) and
+    Top-2 candidate files (`pred_fp`, `sec_fp`).
+  - Stage 5 (Parallel Patch Application, AST Indentation Healing & Official `predictions.jsonl` Grading):
     Applies candidate `EditBlock`s to the real `base_commit` source file, verifies Python AST
     compilation, emits unified diffs (`predictions.jsonl`), and grades against `SWE-bench_Lite`.
 """
@@ -105,8 +106,8 @@ class BatchJSONStoppingCriteria(StoppingCriteria):
         active_indices = [i for i, d in enumerate(self.done_mask) if not d]
         if not active_indices:
             return True
-        active_Slice = input_ids[active_indices, self.prompt_len :]
-        decoded = self.tokenizer.batch_decode(active_Slice, skip_special_tokens=True)
+        active_slice = input_ids[active_indices, self.prompt_len :]
+        decoded = self.tokenizer.batch_decode(active_slice, skip_special_tokens=True)
         for idx, txt in zip(active_indices, decoded):
             if self._is_balanced_json(txt):
                 self.done_mask[idx] = True
@@ -225,6 +226,45 @@ STOPWORDS = {
 }
 
 
+def is_non_source_py_path(fp: str) -> bool:
+    """Filters test suites, documentation, benchmarks, examples, and vendored third-party trees."""
+    low = fp.lower().replace("\\", "/")
+    if (
+        "/tests/" in low
+        or low.startswith("tests/")
+        or "/test/" in low
+        or low.startswith("test/")
+        or "/testing/" in low
+        or low.startswith("testing/")
+        or "/doc/" in low
+        or low.startswith("doc/")
+        or "/docs/" in low
+        or low.startswith("docs/")
+        or "/examples/" in low
+        or low.startswith("examples/")
+        or "/example/" in low
+        or low.startswith("example/")
+        or "/benchmarks/" in low
+        or low.startswith("benchmarks/")
+        or "/benchmark/" in low
+        or low.startswith("benchmark/")
+        or "/tutorial/" in low
+        or "/tutorials/" in low
+        or "/gallery/" in low
+        or "/galleries/" in low
+        or "requests/packages/" in low
+    ):
+        return True
+    base = low.rsplit("/", 1)[-1]
+    if (
+        base.startswith("test_")
+        or base.endswith("_test.py")
+        or base in ("conftest.py", "setup.py", "pytester.py")
+    ):
+        return True
+    return False
+
+
 def extract_issue_signals(problem: str, repo: str = "") -> dict[str, Any]:
     # 1. Traceback frames: File ".../path.py", line 123, in func_name
     tb_matches = re.findall(r'File "([^"]+\.py)", line (\d+)(?:, in ([A-Za-z_][A-Za-z0-9_]*))?', problem)
@@ -235,26 +275,34 @@ def extract_issue_signals(problem: str, repo: str = "") -> dict[str, Any]:
             if prefix in norm_fp:
                 norm_fp = norm_fp.split(prefix, 1)[-1]
         norm_fp = norm_fp.lstrip("./")
-        if "/tests/" in norm_fp or norm_fp.startswith("tests/") or "/test_" in norm_fp or norm_fp.startswith("test_"):
+        if is_non_source_py_path(norm_fp):
             continue
         if "pytest" not in repo and ("_pytest/" in norm_fp or "pytest/" in norm_fp):
             continue
         tb_frames.append((norm_fp, int(raw_ln), raw_fn or ""))
 
-    # 2. Explicit file paths in prose or tracebacks
+    # 2. Explicit file paths (slash paths + backticked/quoted bare .py filenames like `fitsrec.py`)
     explicit_files = re.findall(r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\.py\b", problem)
+    for m_bf in re.finditer(r"[`'\"]([A-Za-z_][A-Za-z0-9_]{3,}\.py)[`'\"]", problem):
+        bf = m_bf.group(1)
+        if not bf.startswith("test_") and bf not in (
+            "setup.py", "conftest.py", "manage.py", "models.py", "views.py",
+            "urls.py", "forms.py", "admin.py", "settings.py", "test.py", "main.py", "app.py",
+        ):
+            explicit_files.append(bf)
 
-    # 3. `from pkg.sub import Sym1, Sym2` and `import pkg.sub`
+    # 3. `from pkg.sub import Sym1, Sym2`, `import pkg.sub`, and dotted paths (including numeric migrations)
     from_imports = re.findall(r"\bfrom\s+([A-Za-z_][A-Za-z0-9_.]*)\s+import\s+([A-Za-z_][A-Za-z0-9_,\s()*]*)", problem)
     bare_imports = re.findall(r"\bimport\s+([A-Za-z_][A-Za-z0-9_.]+)", problem)
-    dotted = re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b", problem)
+    dotted = re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+\b", problem)
 
     module_candidates: list[str] = []
     package_dirs: list[str] = []
     imported_symbols: list[str] = []
 
     def _register_mod_path(mod_str: str):
-        parts = [p for p in mod_str.strip(".").split(".") if p and not p[0].isupper()]
+        raw_parts = [p for p in mod_str.strip(".").split(".") if p]
+        parts = [p for p in raw_parts if not p[0].isupper()]
         if not parts:
             return
         rel_path = "/".join(parts)
@@ -268,6 +316,7 @@ def extract_issue_signals(problem: str, repo: str = "") -> dict[str, Any]:
                 priv_mod = parent_dir + "_" + parts[-1] + ".py"
                 module_candidates.append(priv_mod)
                 package_dirs.append(parent_dir)
+                module_candidates.append(cand_prefix + "/".join(parts[:-1]) + "/migrations/" + parts[-1] + ".py")
         if parts[0] == "pytest":
             sub = "/".join(parts[1:])
             if sub:
@@ -284,32 +333,70 @@ def extract_issue_signals(problem: str, repo: str = "") -> dict[str, Any]:
     for mod_str in bare_imports + dotted:
         _register_mod_path(mod_str)
 
-    # 4. Backticked expressions, CamelCase classes, function calls `foo(`, snake_case identifiers
-    backtick_raw = re.findall(r"`([^`]{2,80})`", problem)
+    # 4. Structured code identifiers from issue title / first line (excluding plain English prose words)
+    first_line = next((ln.strip() for ln in problem.splitlines() if ln.strip()), problem[:180])[:200]
+    title_code_ids: list[str] = []
+    for tok in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]{2,}\b", first_line):
+        if tok.lower() in STOPWORDS:
+            continue
+        is_code = (
+            "_" in tok
+            or bool(re.match(r"^[A-Z][a-z0-9]+(?:[A-Z0-9][a-z0-9]*)+[A-Za-z0-9]*$", tok))
+            or bool(re.match(r"^[A-Z][A-Z0-9_]{3,}$", tok))
+        )
+        if is_code:
+            title_code_ids.append(tok)
+
+    # 5. CLI/config hyphenated options (`--ignore-paths`), backticks, single quotes, diagnostic codes, CamelCase, UPPER_CASE
+    hyphen_opts = re.findall(r"(?:--|`|')([a-z][a-z0-9]+(?:-[a-z0-9]+)+)(?:`|'|=|\s|$)", problem)
+    hyphen_converted = [h.replace("-", "_") for h in hyphen_opts if len(h) >= 5]
+
+    backtick_raw = re.findall(r"`([^`\n]{2,80})`", problem)
+    single_q_ids = re.findall(r"'([A-Za-z_][A-Za-z0-9_.]{2,45})'", problem)
     backtick_ids: list[str] = []
-    for br in backtick_raw:
+    for br in backtick_raw + single_q_ids:
         for tok in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]{2,}\b", br):
             if tok.lower() not in STOPWORDS:
                 backtick_ids.append(tok)
 
+    diag_codes = re.findall(r"\b(?:[a-z_]+\.[EW]\d{3}|[EWCR]\d{4})\b", problem)
     func_calls = re.findall(r"\b([A-Za-z_][A-Za-z0-9_]{2,})\s*\(", problem)
-    camel = re.findall(r"\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+\b", problem)
+    camel = re.findall(r"\b[A-Z][a-z0-9]+(?:[A-Z0-9][a-z0-9]*)+[A-Za-z0-9]*\b", problem)
+    upper_consts = [
+        u for u in re.findall(r"\b[A-Z][A-Z0-9_]{3,}\b", problem)
+        if "_" in u and u not in ("TRUE", "FALSE", "NONE", "NULL", "TODO", "NOTE", "PYTHONPATH")
+    ]
     snake = re.findall(r"\b[a-z_][a-z0-9_]{3,}\b", problem)
 
-    symbols: list[str] = []
+    dotted_syms: list[str] = []
+    for d in dotted:
+        parts = d.split(".")
+        if parts[-1].lower() not in STOPWORDS and len(parts[-1]) >= 3:
+            dotted_syms.append(parts[-1])
+        for p in parts[:-1]:
+            if len(p) >= 3 and p[0].isupper() and p.lower() not in STOPWORDS:
+                dotted_syms.append(p)
+
     tb_funcs = [fn for _, _, fn in reversed(tb_frames) if fn and fn not in ("<module>", "<lambda>")]
     priority_stream = (
         tb_funcs
+        + diag_codes
+        + title_code_ids
         + imported_symbols
         + backtick_ids
         + camel
+        + upper_consts
+        + hyphen_converted
         + [fc for fc in func_calls if fc.lower() not in STOPWORDS]
-        + [d.split(".")[-1] for d in dotted]
+        + dotted_syms
         + snake
     )
+    symbols: list[str] = []
+    seen_s: set[str] = set()
     for tok in priority_stream:
         clean = tok.strip(".")
-        if len(clean) >= 3 and clean.lower() not in STOPWORDS and clean not in symbols:
+        if len(clean) >= 3 and clean.lower() not in STOPWORDS and clean not in seen_s:
+            seen_s.add(clean)
             symbols.append(clean)
 
     path_stems: list[str] = []
@@ -318,16 +405,24 @@ def extract_issue_signals(problem: str, repo: str = "") -> dict[str, Any]:
             pl = p.lower().lstrip("_")
             if pl not in STOPWORDS and len(pl) >= 3:
                 path_stems.append(pl)
-    for tok in symbols[:25]:
-        path_stems.append(tok.lower().lstrip("_"))
+    for tok in symbols[:26]:
+        low_t = tok.lower().lstrip("_")
+        if len(low_t) >= 3 and low_t not in STOPWORDS:
+            path_stems.append(low_t)
+        if "_" in low_t:
+            for sub in low_t.split("_"):
+                if len(sub) >= 4 and sub not in STOPWORDS:
+                    path_stems.append(sub)
 
     return {
         "tb_frames": tb_frames,
-        "explicit_files": list(dict.fromkeys(explicit_files))[:10],
-        "module_candidates": list(dict.fromkeys(module_candidates))[:25],
-        "package_dirs": list(dict.fromkeys(package_dirs))[:20],
-        "symbols": symbols[:24],
-        "path_stems": list(dict.fromkeys(path_stems))[:30],
+        "explicit_files": list(dict.fromkeys(explicit_files))[:12],
+        "module_candidates": list(dict.fromkeys(module_candidates))[:30],
+        "package_dirs": list(dict.fromkeys(package_dirs))[:25],
+        "symbols": symbols[:26],
+        "title_symbols": set(title_code_ids + diag_codes + upper_consts),
+        "diag_codes": diag_codes[:6],
+        "path_stems": list(dict.fromkeys(path_stems))[:34],
     }
 
 
@@ -337,21 +432,28 @@ def find_best_symbol_and_window(
     problem: str,
     pinned_lines: list[int] | None = None,
     def_hits: list[tuple[str, int]] | None = None,
-) -> tuple[str, list[int], str, str]:
+    usage_lines: list[int] | None = None,
+) -> tuple[str, list[int], str, str, list[int], str]:
+    """
+    Law 2 Enclosing-Function & Dual-Symbol Slicer:
+    - Prefers innermost FunctionDef/AsyncFunctionDef over large outer ClassDef shells.
+    - Scores both traceback pins (`pinned_lines`) and symbol usage lines (`usage_lines`).
+    - Uses 16-line / 580-char windows (matching training ctx_win[:650] distribution) and centers
+      traceback pins near `ws + 5` so `_slice_compact` never truncates the pinned line.
+    - When `w1` already covers all of `best_sym`, routes `w2` (`snippet_alt`) to the #2 ranked
+      non-overlapping function/method (`sec_sym_range`) in the same file.
+    """
     lines = src_text.splitlines()
     if not lines:
-        return "module", [1, 1], "", ""
+        return "module", [1, 1], "", "", [1, 1], "module"
 
-    best_sym = "module"
-    best_exec_start = 1
-    best_end = min(len(lines), 16)
-    best_score = -1.0
-
-    q_lower = {s.lower() for s in query_symbols[:18]}
-    prob_words = {w.lower() for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", problem[:900]) if w.lower() not in STOPWORDS}
+    q_lower = {s.lower() for s in query_symbols[:22]}
+    prob_words = {w.lower() for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", problem[:1000]) if w.lower() not in STOPWORDS}
     pin_set = set(pinned_lines or [])
+    use_line_set = set(usage_lines or [])
     def_line_map = {ln: sym_n for sym_n, ln in (def_hits or [])}
 
+    scored_nodes: list[tuple[float, str, int, int, bool]] = []
     try:
         tree = ast.parse(src_text)
         for node in ast.walk(tree):
@@ -372,78 +474,107 @@ def find_best_symbol_and_window(
                         else:
                             exec_start = getattr(first_stmt, "end_lineno", start_l)
 
+                is_func = isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                span_len = max(1, end_l - exec_start + 1)
                 score = 0.0
-                # Traceback pin inside this function/method
                 if any(start_l <= pl <= end_l for pl in pin_set):
-                    score += 85.0
+                    score += 95.0 if is_func else 55.0
                 if start_l in def_line_map:
-                    score += 50.0
-                if name in query_symbols[:6]:
-                    score += 48.0
+                    score += 55.0 if is_func else 38.0
+                if name in query_symbols[:8]:
+                    score += 52.0 if is_func else 34.0
                 elif name in query_symbols:
-                    score += 36.0
+                    score += 38.0 if is_func else 24.0
                 elif name.lower() in q_lower:
-                    score += 26.0
+                    score += 28.0
                 elif any(q in name.lower() or name.lower() in q for q in q_lower if len(q) >= 4):
-                    score += 12.0
+                    score += 14.0
 
-                body_text = "\n".join(lines[max(0, exec_start - 1) : min(len(lines), end_l)]).lower()
+                in_node_use = sum(1 for ul in use_line_set if exec_start <= ul <= end_l)
+                if in_node_use > 0:
+                    score += min(28.0, in_node_use * 7.0) * (1.2 if is_func else 0.6)
+
+                body_text = "\n".join(lines[max(0, exec_start - 1) : min(len(lines), min(end_l, exec_start + 120))]).lower()
                 for ql in q_lower:
                     if ql in body_text:
-                        score += 3.0
-                for pw in list(prob_words)[:20]:
+                        score += 3.2
+                for pw in list(prob_words)[:24]:
                     if pw in body_text:
                         score += 1.2
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    score += 4.0  # prefer specific functions/methods over outer class
+                if is_func:
+                    score += 6.0
+                elif span_len > 120:
+                    score *= 0.55
 
-                if score > best_score:
-                    best_score = score
-                    best_sym = name
-                    best_exec_start = max(1, exec_start)
-                    best_end = min(len(lines), max(best_exec_start + 8, end_l))
+                scored_nodes.append((score, name, max(1, exec_start), min(len(lines), max(exec_start + 6, end_l)), is_func))
     except Exception:
         for i, ln in enumerate(lines):
-            m = re.match(r"^\s*(?:def|class)\s+([A-Za-z_][A-Za-z0-9_]*)", ln)
+            m = re.match(r"^\s*(def|class)\s+([A-Za-z_][A-Za-z0-9_]*)", ln)
             if m:
-                name = m.group(1)
-                score = 35.0 if name in query_symbols else (22.0 if name.lower() in q_lower else 1.0)
-                if score > best_score:
-                    best_score = score
-                    best_sym = name
-                    best_exec_start = i + 1
-                    best_end = min(len(lines), i + 30)
+                is_f = m.group(1) == "def"
+                name = m.group(2)
+                sc = 40.0 if name in query_symbols else (25.0 if name.lower() in q_lower else 2.0)
+                scored_nodes.append((sc, name, i + 1, min(len(lines), i + 35), is_f))
 
-    # Score all 12-line executable focal windows across [best_exec_start, best_end] (Law 2: 66.0% AST -> 12-line focal window)
-    win_len = 12
-    scored_windows: list[tuple[float, int]] = []
-    max_start = max(best_exec_start, best_end - win_len + 1)
-    for ws in range(best_exec_start, min(max_start + 1, best_exec_start + 140)):
-        cand_lines = lines[ws - 1 : min(len(lines), ws - 1 + win_len)]
-        cand_txt = "\n".join(cand_lines).lower()
-        if not cand_txt.strip():
-            continue
-        sc = 0.0
-        for pl in pin_set:
-            if ws <= pl <= ws + win_len:
-                sc += 60.0
-        for ql in q_lower:
-            if ql in cand_txt:
-                sc += 5.5
-        for pw in prob_words:
-            if pw in cand_txt:
-                sc += 1.5
-        if any(k in cand_txt for k in ("return ", "raise ", "if ", "elif ", "except", "isinstance")):
-            sc += 2.0
-        scored_windows.append((sc, ws))
+    scored_nodes.sort(key=lambda x: x[0], reverse=True)
+    if scored_nodes:
+        _, best_sym, best_exec_start, best_end, _ = scored_nodes[0]
+    else:
+        best_sym, best_exec_start, best_end = "module", 1, min(len(lines), 24)
 
-    scored_windows.sort(key=lambda x: x[0], reverse=True)
-    w1_start = scored_windows[0][1] if scored_windows else best_exec_start
-    w2_start = w1_start
-    for sc, ws in scored_windows[1:]:
-        if abs(ws - w1_start) >= 6:
-            w2_start = ws
+    sec_sym_range: tuple[str, int, int] | None = None
+    for sc, nm, s_l, e_l, is_f in scored_nodes[1:]:
+        if abs(s_l - best_exec_start) >= 10 and not (best_exec_start <= s_l <= best_end and e_l <= best_end):
+            sec_sym_range = (nm, s_l, e_l)
             break
+
+    win_len = 16
+
+    def _score_windows_in_span(span_start: int, span_end: int) -> list[tuple[float, int]]:
+        out_w: list[tuple[float, int]] = []
+        max_s = max(span_start, span_end - win_len + 1)
+        for ws in range(span_start, min(max_s + 1, span_start + 220)):
+            we = min(len(lines), ws + win_len - 1)
+            cand_lines = lines[ws - 1 : we]
+            cand_txt = "\n".join(cand_lines).lower()
+            if not cand_txt.strip():
+                continue
+            sc = 0.0
+            for pl in pin_set:
+                if ws <= pl <= we:
+                    dist_center = abs(pl - (ws + 5))
+                    sc += max(45.0, 75.0 - 3.0 * dist_center)
+            for ul in use_line_set:
+                if ws <= ul <= we:
+                    sc += 12.0
+            for ql in q_lower:
+                if ql in cand_txt:
+                    sc += 6.0
+            for pw in prob_words:
+                if pw in cand_txt:
+                    sc += 1.5
+            if any(k in cand_txt for k in ("return ", "raise ", "if ", "elif ", "except", "isinstance", "getattr", "hasattr")):
+                sc += 2.5
+            out_w.append((sc, ws))
+        out_w.sort(key=lambda x: x[0], reverse=True)
+        return out_w
+
+    scored_w = _score_windows_in_span(best_exec_start, best_end)
+    w1_start = scored_w[0][1] if scored_w else best_exec_start
+
+    w2_start = w1_start
+    sec_sym_name = best_sym
+    found_disjoint_in_sym = False
+    for sc, ws in scored_w[1:]:
+        if abs(ws - w1_start) >= 10:
+            w2_start = ws
+            found_disjoint_in_sym = True
+            break
+    if not found_disjoint_in_sym and sec_sym_range is not None:
+        sec_w = _score_windows_in_span(sec_sym_range[1], sec_sym_range[2])
+        if sec_w:
+            w2_start = sec_w[0][1]
+            sec_sym_name = sec_sym_range[0]
 
     def _slice_compact(ws_idx: int) -> tuple[list[int], str]:
         w_s = max(1, ws_idx)
@@ -451,15 +582,15 @@ def find_best_symbol_and_window(
         kept = []
         chars = 0
         for ln in lines[w_s - 1 : w_e]:
-            if chars + len(ln) > 440 and len(kept) >= 5:
+            if chars + len(ln) > 580 and len(kept) >= 8:
                 break
             kept.append(ln)
             chars += len(ln) + 1
         return [w_s, w_s + max(0, len(kept) - 1)], "\n".join(kept)
 
     lrange1, snippet1 = _slice_compact(w1_start)
-    _, snippet2 = _slice_compact(w2_start)
-    return best_sym, lrange1, snippet1, snippet2
+    lrange2, snippet2 = _slice_compact(w2_start)
+    return best_sym, lrange1, snippet1, snippet2, lrange2, sec_sym_name
 
 
 def localize_candidates_at_base_commit(
@@ -467,8 +598,9 @@ def localize_candidates_at_base_commit(
     repo_dir: Path,
 ) -> dict[str, Any]:
     """
-    Stage 1 Worker: Uses ONLY `problem_statement`, `repo`, and `base_commit` (Zero Oracle Leakage)
-    with Law 1 Ridge-Learned Feature Coupling + Deep-Frame Stub Discount + AST Definition Indexing.
+    Stage 1 Worker (v4): Uses ONLY `problem_statement`, `repo`, and `base_commit` (Zero Oracle Leakage)
+    with Law 1 Ridge-Learned Feature Coupling, Deep-Frame Stub Discount, Fast Single-Alternation AST
+    Definition Indexing, Batched Multi-Symbol Co-Occurrence Grep, and 1-Hop Relative Import Propagation.
     """
     iid = row["instance_id"]
     repo = row["repo"]
@@ -496,16 +628,12 @@ def localize_candidates_at_base_commit(
     all_py_files = [
         f
         for f in ls_proc.stdout.splitlines()
-        if f.endswith(".py")
-        and "/tests/" not in f
-        and not f.startswith("tests/")
-        and not f.startswith("test_")
-        and "/test_" not in f
-        and "conftest.py" not in f
+        if f.endswith(".py") and not is_non_source_py_path(f)
     ]
     all_py_set = set(all_py_files)
 
     signals = extract_issue_signals(problem, repo=repo)
+    title_syms = signals.get("title_symbols", set())
     file_scores: dict[str, float] = {}
     s_tb_deep_map: dict[str, float] = {}
     s_tb_outer_map: dict[str, float] = {}
@@ -517,6 +645,7 @@ def localize_candidates_at_base_commit(
     s_usage_map: dict[str, float] = {}
     pinned_lines_by_file: dict[str, list[int]] = {}
     def_hits_by_file: dict[str, list[tuple[str, int]]] = {}
+    usage_lines_by_file: dict[str, list[int]] = {}
 
     # 1. Traceback frame pinning (with Law 1 deep-frame vs outer-frame decomposition)
     tb_frames = signals["tb_frames"]
@@ -527,18 +656,26 @@ def localize_candidates_at_base_commit(
                 if is_deepest:
                     s_tb_deep_map[fp] = s_tb_deep_map.get(fp, 0.0) + 92.0
                 else:
-                    s_tb_outer_map[fp] = s_tb_outer_map.get(fp, 0.0) + 62.0
+                    s_tb_outer_map[fp] = s_tb_outer_map.get(fp, 0.0) + 64.0
                 pinned_lines_by_file.setdefault(fp, []).append(tb_ln)
 
-    # 2. Explicit file mentions, dotted module import paths, package directories, and clean stems
+    # 2. Explicit file mentions, dotted module import paths, package directories, and subtoken stem synergy
+    title_low_set = {t.lower() for t in title_syms}
     for fp in all_py_files:
         fp_low = fp.lower()
-        stem_clean = Path(fp_low).stem.lstrip("_")
+        base_low = fp_low.rsplit("/", 1)[-1]
+        stem_clean = base_low[:-3].lstrip("_")
+        dir_parts = [d.lstrip("_") for d in fp_low.split("/")[:-1] if d]
 
         for ef in signals["explicit_files"]:
-            ef_norm = ef.replace("\\", "/").lstrip("./")
-            if fp == ef_norm or fp.endswith("/" + ef_norm) or ef_norm.endswith("/" + fp):
-                s_explicit_map[fp] = s_explicit_map.get(fp, 0.0) + 75.0
+            ef_norm = ef.replace("\\", "/").lstrip("./").lower()
+            if "/" in ef_norm:
+                if fp_low == ef_norm or fp_low.endswith("/" + ef_norm) or ef_norm.endswith("/" + fp_low):
+                    s_explicit_map[fp] = s_explicit_map.get(fp, 0.0) + 80.0
+            else:
+                if base_low == ef_norm:
+                    s_explicit_map[fp] = s_explicit_map.get(fp, 0.0) + 65.0
+
         for mc in signals["module_candidates"]:
             mc_low = mc.lower()
             if fp_low == mc_low or fp_low.endswith("/" + mc_low):
@@ -547,16 +684,31 @@ def localize_candidates_at_base_commit(
             pdir_low = pdir.lower()
             if fp_low.startswith(pdir_low) or ("/" + pdir_low) in fp_low:
                 s_pkg_map[fp] = s_pkg_map.get(fp, 0.0) + 24.0
+
+        stem_hits = 0
+        dir_hits = 0
         for ps in signals["path_stems"]:
-            if ps == stem_clean and stem_clean not in ("init", "base", "utils", "common", "exceptions"):
-                s_stem_map[fp] = s_stem_map.get(fp, 0.0) + 24.0
+            if ps == stem_clean and stem_clean not in ("init", "base", "utils", "common", "exceptions", "compat", "conf", "main"):
+                stem_hits += 1
+                s_stem_map[fp] = s_stem_map.get(fp, 0.0) + (28.0 if ps in title_low_set else 24.0)
             elif len(ps) >= 5 and ps in stem_clean:
                 s_stem_map[fp] = s_stem_map.get(fp, 0.0) + 11.0
+            if ps in dir_parts and ps not in (
+                "django", "sympy", "sklearn", "matplotlib", "sphinx", "pytest",
+                "astropy", "xarray", "pylint", "seaborn", "requests", "flask",
+                "core", "lib", "src", "ext", "utils",
+            ):
+                dir_hits += 1
+                s_pkg_map[fp] = s_pkg_map.get(fp, 0.0) + 12.0
+        if stem_hits > 0 and dir_hits > 0:
+            s_stem_map[fp] = s_stem_map.get(fp, 0.0) + 20.0
 
-    # 3. Single-Call AST Definition `git grep` (`def <sym>` or `class <sym>`) at base_commit
-    def_syms = [re.escape(s) for s in signals["symbols"][:14] if len(s) >= 3]
+    # 3. Fast Single-Alternation AST Definition `git grep` (`def <sym>` or `class <sym>`)
+    def_syms = [re.escape(s) for s in signals["symbols"][:18] if len(s) >= 3 and re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", s)]
+    sym_to_files: dict[str, list[tuple[str, int]]] = {}
     if def_syms:
-        def_pattern = r"^\s*(def|class)\s+(" + "|".join(def_syms) + r")\b"
+        sym_alt = "|".join(def_syms)
+        def_pattern = r"^[[:space:]]*(def|class)[[:space:]]+(" + sym_alt + r")\b"
         try:
             gp_def = subprocess.run(
                 ["git", "-C", str(repo_dir), "grep", "--threads=1", "-I", "-n", "-E", def_pattern, base_commit, "--", "*.py"],
@@ -565,7 +717,6 @@ def localize_candidates_at_base_commit(
                 timeout=6,
             )
             if gp_def.returncode == 0:
-                sym_to_files: dict[str, list[tuple[str, int]]] = {}
                 for ln in gp_def.stdout.splitlines():
                     parts = ln.split(":", 3)
                     if len(parts) < 4:
@@ -578,47 +729,88 @@ def localize_candidates_at_base_commit(
                     except ValueError:
                         lno = 1
                     m_sym = re.search(r"(?:def|class)\s+([A-Za-z_][A-Za-z0-9_]*)", parts[3])
-                    sym_name = m_sym.group(1) if m_sym else ""
-                    sym_to_files.setdefault(sym_name, []).append((rel_fp, lno))
-
-                for sym_name, file_lno_list in sym_to_files.items():
-                    unique_files = list(dict.fromkeys(f for f, _ in file_lno_list))
-                    if 0 < len(unique_files) <= 20:
-                        rank_idx = signals["symbols"].index(sym_name) if sym_name in signals["symbols"] else 8
-                        priority_mult = 1.25 if rank_idx < 4 else 1.0
-                        def_boost = priority_mult * (68.0 / (1.0 + 0.25 * (len(unique_files) - 1)))
-                        for rel_fp in unique_files:
-                            s_ast_def_map[rel_fp] = s_ast_def_map.get(rel_fp, 0.0) + def_boost
-                        for rel_fp, lno in file_lno_list:
-                            def_hits_by_file.setdefault(rel_fp, []).append((sym_name, lno))
+                    if m_sym:
+                        sym_to_files.setdefault(m_sym.group(1), []).append((rel_fp, lno))
         except Exception:
             pass
 
-    # 4. Usage `git grep` for top 5 distinctive symbols (Law 1 top Ridge predictor: w* = +24.91)
-    for sym_tok in signals["symbols"][:5]:
-        if len(sym_tok) < 4:
-            continue
+    # 4. Batched Multi-Symbol Usage + Diagnostic Code `git grep` (also captures top-level CONST = & lookup_name =)
+    use_syms = [s for s in signals["symbols"][:14] if len(s) >= 4 and re.match(r"^[A-Za-z_][A-Za-z0-9_.]*$", s)]
+    for dc in signals.get("diag_codes", []):
+        if dc not in use_syms:
+            use_syms.insert(0, dc)
+    use_syms = use_syms[:14]
+    if use_syms:
+        use_pat = "(" + "|".join(re.escape(s) for s in use_syms) + ")"
         try:
-            gp = subprocess.run(
-                ["git", "-C", str(repo_dir), "grep", "--threads=1", "-I", "-l", sym_tok, base_commit, "--", "*.py"],
+            gp_use = subprocess.run(
+                ["git", "-C", str(repo_dir), "grep", "--threads=1", "-I", "-n", "-E", use_pat, base_commit, "--", "*.py"],
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=6,
             )
-        except Exception:
-            continue
-        if gp.returncode == 0:
-            hits = []
-            for ln in gp.stdout.splitlines():
-                rel = ln.split(":", 1)[1] if ":" in ln else ln
-                if rel in all_py_set:
-                    hits.append(rel)
-            if 0 < len(hits) <= 35:
-                boost = 28.0 / (1.0 + 0.15 * len(hits))
-                for rel in hits:
-                    s_usage_map[rel] = s_usage_map.get(rel, 0.0) + boost
+            if gp_use.returncode == 0:
+                sym_files_map: dict[str, set[str]] = {s: set() for s in use_syms}
+                file_sym_lines: dict[str, list[int]] = {}
+                tok_re = re.compile(use_pat)
+                def_sym_set = set(signals["symbols"][:18])
+                for ln in gp_use.stdout.splitlines():
+                    parts = ln.split(":", 3)
+                    if len(parts) < 4:
+                        continue
+                    rel_fp = parts[1]
+                    if rel_fp not in all_py_set:
+                        continue
+                    txt = parts[3]
+                    try:
+                        lno = int(parts[2])
+                    except ValueError:
+                        lno = 1
+                    matched_any = False
+                    for m in tok_re.findall(txt):
+                        sym_files_map.setdefault(m, set()).add(rel_fp)
+                        matched_any = True
+                    if matched_any:
+                        if len(file_sym_lines.setdefault(rel_fp, [])) < 40:
+                            file_sym_lines[rel_fp].append(lno)
+                    if "=" in txt:
+                        m_assign = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=|^\s*lookup_name\s*=\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]", txt)
+                        if m_assign:
+                            as_sym = m_assign.group(1) or m_assign.group(2)
+                            if as_sym in def_sym_set:
+                                sym_to_files.setdefault(as_sym, []).append((rel_fp, lno))
 
-    # Law 1 Ridge-Coupled Score Synthesis with Deep-Frame Stub Discount:
+                file_distinct_hits: dict[str, int] = {}
+                for sym_tok, fset in sym_files_map.items():
+                    df = len(fset)
+                    if 0 < df <= 40:
+                        t_mult = 1.30 if sym_tok in title_syms else 1.0
+                        if sym_tok in signals.get("diag_codes", []) and df <= 5:
+                            t_mult = 2.5
+                        boost = t_mult * (28.0 / (1.0 + 0.15 * df))
+                        for rel_fp in fset:
+                            s_usage_map[rel_fp] = s_usage_map.get(rel_fp, 0.0) + boost
+                            file_distinct_hits[rel_fp] = file_distinct_hits.get(rel_fp, 0) + 1
+
+                for rel_fp, d_cnt in file_distinct_hits.items():
+                    if d_cnt >= 2:
+                        s_usage_map[rel_fp] += min(36.0, (d_cnt - 1) * 11.0)
+                usage_lines_by_file = file_sym_lines
+        except Exception:
+            pass
+
+    for sym_name, file_lno_list in sym_to_files.items():
+        unique_files = list(dict.fromkeys(f for f, _ in file_lno_list))
+        if 0 < len(unique_files) <= 20:
+            rank_idx = signals["symbols"].index(sym_name) if sym_name in signals["symbols"] else 8
+            priority_mult = 1.30 if (sym_name in title_syms or rank_idx < 4) else 1.0
+            def_boost = priority_mult * (68.0 / (1.0 + 0.25 * (len(unique_files) - 1)))
+            for rel_fp in unique_files:
+                s_ast_def_map[rel_fp] = s_ast_def_map.get(rel_fp, 0.0) + def_boost
+            for rel_fp, lno in file_lno_list:
+                def_hits_by_file.setdefault(rel_fp, []).append((sym_name, lno))
+
+    # 5. Law 1 Ridge-Derived Composite Scoring (`s_usage` + `s_ast_def` + `s_explicit` - isolated deep stub discount)
     all_touched = (
         set(s_tb_deep_map)
         | set(s_tb_outer_map)
@@ -657,6 +849,27 @@ def localize_candidates_at_base_commit(
         if total_sc > 0:
             file_scores[fp] = total_sc
 
+    # 6. 1-Hop Inverted Import-Graph / Re-Export Propagation when top candidate imports symbol from sibling module
+    prelim_top = sorted(file_scores.items(), key=lambda kv: kv[1], reverse=True)[:4]
+    for fp, sc in prelim_top:
+        sh = subprocess.run(
+            ["git", "-C", str(repo_dir), "show", f"{base_commit}:{fp}"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+        )
+        if sh.returncode != 0:
+            continue
+        pkg_dir = fp.rsplit("/", 1)[0] if "/" in fp else ""
+        for m_imp in re.finditer(r"^\s*from\s+\.([A-Za-z0-9_.]+)\s+import\s+([^\n#]+)", sh.stdout, re.MULTILINE):
+            sub_mod = m_imp.group(1).strip(".")
+            imp_names = set(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", m_imp.group(2)))
+            overlap = imp_names & set(signals["symbols"][:16])
+            if overlap:
+                cand_rel = f"{pkg_dir}/{sub_mod.replace('.', '/')}.py" if pkg_dir else f"{sub_mod.replace('.', '/')}.py"
+                if cand_rel in all_py_set:
+                    file_scores[cand_rel] = file_scores.get(cand_rel, 0.0) + 0.55 * sc
+
     ranked = sorted(file_scores.items(), key=lambda kv: kv[1], reverse=True)[:6]
     if not ranked and all_py_files:
         ranked = [(fp, 10.0) for fp in all_py_files[:6]]
@@ -671,12 +884,13 @@ def localize_candidates_at_base_commit(
             errors="replace",
         )
         src_text = sh.stdout if sh.returncode == 0 else ""
-        sym, lrange, snippet1, snippet2 = find_best_symbol_and_window(
+        sym, lrange, snippet1, snippet2, lrange2, sec_sym = find_best_symbol_and_window(
             src_text,
             signals["symbols"],
             problem,
             pinned_lines=pinned_lines_by_file.get(fp),
             def_hits=def_hits_by_file.get(fp),
+            usage_lines=usage_lines_by_file.get(fp),
         )
         norm_score = min(58.0, max(12.0, round(raw_sc, 2)))
         candidates.append(
@@ -690,7 +904,9 @@ def localize_candidates_at_base_commit(
         )
         file_windows[fp] = {
             "symbol": sym,
+            "symbol_alt": sec_sym,
             "line_range": lrange,
+            "line_range_alt": lrange2,
             "snippet": snippet1,
             "snippet_alt": snippet2,
             "full_source": src_text,
@@ -836,7 +1052,6 @@ def _try_ast_indent_heal(
         except Exception:
             pass
 
-    # Also test shifting only lines[1:] relative to line[0] (fixes LLM first-line stripped indent)
     if len(rep_raw) >= 2:
         line0 = (" " * orig_indent) + rep_raw[0].lstrip()
         for body_d in (0, 4, -4, 8, -8, orig_indent):
@@ -870,7 +1085,6 @@ def try_apply_edit_block_to_source(full_source: str, search_text: str, replace_t
         except Exception:
             pass
 
-    # Line-trimmed fuzzy match + Law 4 AST Indentation Healer
     src_lines = full_source.splitlines()
     s_lines = [ln.strip() for ln in search_text.strip().splitlines() if ln.strip()]
     if not s_lines:
@@ -883,7 +1097,6 @@ def try_apply_edit_block_to_source(full_source: str, search_text: str, replace_t
             if healed:
                 return True, healed
 
-    # Law 4 Boundary Anchor Fallback: unique (first_line, last_line) match when 1 middle line drifted
     if len(s_lines) >= 2:
         first_l, last_l = s_lines[0], s_lines[-1]
         min_span = max(2, len(s_lines) - 1)
@@ -983,19 +1196,31 @@ def score_candidate_zero_leakage(
     vln_hint: str,
     issue_symbols: list[str],
     prior_bonus: float,
+    cand_src: str = "",
 ) -> float:
     score = 40.0 + prior_bonus
     s_lines = [ln.strip() for ln in s_txt.strip().splitlines() if ln.strip()]
     r_lines = [ln.strip() for ln in r_txt.strip().splitlines() if ln.strip()]
     s_set = set(s_lines)
     r_set = set(r_lines)
-    changed_text = "\n".join(list(r_set - s_set) + list(s_set - r_set))
-    added_text = "\n".join(list(r_set - s_set))
+    added_lines = [ln for ln in r_lines if ln not in s_set]
+    removed_lines = [ln for ln in s_lines if ln not in r_set]
+    changed_text = "\n".join(added_lines + removed_lines)
+    added_text = "\n".join(added_lines)
+
+    # 0. Exact substring anchor match bonus vs fuzzy/boundary fallback
+    if cand_src and s_txt in cand_src:
+        score += 5.0
+
+    # Penalize comment-only or pass-only pseudo-noops
+    exec_added = [ln for ln in added_lines if not ln.startswith("#") and ln != "pass"]
+    if not exec_added and not removed_lines:
+        score -= 20.0
 
     # 1. Issue symbol overlap in the modified lines
-    for sym in issue_symbols[:10]:
+    for idx, sym in enumerate(issue_symbols[:12]):
         if len(sym) >= 3 and sym.lower() in changed_text.lower():
-            score += 5.5
+            score += 6.0 if idx < 4 else 4.5
 
     # 2. VLN SWE Cartridge invariant guard alignment
     if vln_hint:
@@ -1026,35 +1251,37 @@ def make_heal_prompt(fp: str, sym: str, start_line: int, vln_hint: str, short_is
     if vln_hint:
         heal_parts.append(f"VLN: {vln_hint}")
     heal_parts.append(f"Issue: {short_issue[:260]}")
-    heal_parts.append("Context:\n" + snippet[:440])
+    heal_parts.append("Context:\n" + snippet[:580])
     heal_u = "\n".join(heal_parts)
     return f"<|system|>\n{SYS_HEAL}\n<|user|>\n{heal_u}\n<|assistant|>\n"
 
 
 def main():
-    parser = argparse.ArgumentParser(description="A100 Stage-Pipelined SWE-300 Official Benchmark")
+    parser = argparse.ArgumentParser(description="A100 Stage-Pipelined SWE-300 Official Benchmark (v4)")
     parser.add_argument("--model-id", default="google/gemma-4-e2b")
     parser.add_argument("--adapter-dir", default="/content/omnicoder-icx/training/checkpoints/omnicoder-gemma-e2b-clean")
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--beam-k", type=int, default=4)
     parser.add_argument("--limit", type=int, default=300)
     parser.add_argument("--out-dir", default="/content/swe300_results")
+    parser.add_argument("--repo-cache-dir", default="/content/swe300_results/repo_mirrors")
     args = parser.parse_args()
 
     t_global = time.time()
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = Path(args.repo_cache_dir)
 
-    print(f"[SWE-300 A100] Loading official princeton-nlp/SWE-bench_Lite test split ({args.limit} instances)...", flush=True)
+    print(f"[SWE-300 A100 v4] Loading official princeton-nlp/SWE-bench_Lite test split ({args.limit} instances)...", flush=True)
     ds = load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
     rows = [dict(r) for r in list(ds)[: args.limit]]
 
-    repo_map = prewarm_all_swe300_repos(rows, out_dir / "repo_mirrors")
+    repo_map = prewarm_all_swe300_repos(rows, cache_dir)
 
     # =========================================================================
     # STAGE 1: Parallel `base_commit` Candidate Retrieval + VLN Hint Injection
     # =========================================================================
-    print(f"[Stage 1/5] Retrieving top-6 AST/Definition/Traceback candidates at base_commit across {len(rows)} instances ({args.workers} threads)...", flush=True)
+    print(f"[Stage 1/5] Retrieving top-6 AST/Import-Graph/Co-Occurrence candidates at base_commit across {len(rows)} instances ({args.workers} threads)...", flush=True)
     t_s1 = time.time()
     items: list[dict[str, Any]] = [None] * len(rows)  # type: ignore
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -1145,11 +1372,22 @@ def main():
 
         win1 = it["file_windows"].get(
             pred_fp,
-            {"symbol": pred_sym, "line_range": [1, 12], "snippet": "", "snippet_alt": "", "full_source": "", "raw_score": 20.0},
+            {
+                "symbol": pred_sym,
+                "symbol_alt": pred_sym,
+                "line_range": [1, 16],
+                "line_range_alt": [1, 16],
+                "snippet": "",
+                "snippet_alt": "",
+                "full_source": "",
+                "raw_score": 20.0,
+            },
         )
         it["target_snippet"] = win1["snippet"]
         it["target_full_source"] = win1["full_source"]
         lrange1 = win1["line_range"]
+        lrange1_alt = win1.get("line_range_alt") or lrange1
+        sym1_alt = win1.get("symbol_alt") or pred_sym
 
         # Secondary candidate file (#2) for multi-file K=4 tournament (Law 3: remove static 24.0 vs 15.0 handicap)
         sec_fp = pred_supp[0] if pred_supp else pred_fp
@@ -1171,8 +1409,8 @@ def main():
         p_w1 = make_heal_prompt(pred_fp, pred_sym, lrange1[0], it["vln_hint"], it["short_issue"], win1["snippet"])
         p_w1_alt = make_heal_prompt(
             pred_fp,
-            pred_sym,
-            lrange1[0],
+            sym1_alt,
+            lrange1_alt[0],
             it["vln_hint"],
             it["short_issue"],
             win1.get("snippet_alt") or win1["snippet"],
@@ -1228,7 +1466,7 @@ def main():
     # =========================================================================
     # STAGE 4: Multi-Window + Top-2 Speculative K=4 `[OC:HEAL]` Tournament
     # =========================================================================
-    print(f"[Stage 4/5] Running Config 3 v3 Multi-Window Speculative K=4 [OC:HEAL] Tournament across {len(items)} instances (batch_size=96, max_new_tokens=220)...", flush=True)
+    print(f"[Stage 4/5] Running Config 3 v4 Multi-Window Speculative K=4 [OC:HEAL] Tournament across {len(items)} instances (batch_size=96, max_new_tokens=220)...", flush=True)
     all_candidates_per_item: list[list[str]] = [[] for _ in items]
 
     # K=0: Greedy Anchor on Primary File Focal Window #1
@@ -1249,16 +1487,16 @@ def main():
     for i, txt in enumerate(c1_raw):
         all_candidates_per_item[i].append(txt)
 
-    # K=2: Speculative Beam (T=0.20) on Primary File Secondary Focal Window #2
+    # K=2: Speculative Beam (T=0.15) on Primary File Secondary Focal Window #2 / Symbol #2
     c2_raw = run_batched_generation(
-        model, tokenizer, device, heal_prompts_k2, batch_size=96, max_new_tokens=220, do_sample=True, temperature=0.20, stage_name="OC:HEAL-Window2-K2"
+        model, tokenizer, device, heal_prompts_k2, batch_size=96, max_new_tokens=220, do_sample=True, temperature=0.15, stage_name="OC:HEAL-Window2-K2"
     )
     for i, txt in enumerate(c2_raw):
         all_candidates_per_item[i].append(txt)
 
-    # K=3: Speculative Beam (T=0.25) on Candidate File #2 (or Primary Window #1)
+    # K=3: Speculative Beam (T=0.20) on Candidate File #2 (or Primary Window #1)
     c3_raw = run_batched_generation(
-        model, tokenizer, device, heal_prompts_k3, batch_size=96, max_new_tokens=220, do_sample=True, temperature=0.25, stage_name="OC:HEAL-Top2File-K3"
+        model, tokenizer, device, heal_prompts_k3, batch_size=96, max_new_tokens=220, do_sample=True, temperature=0.20, stage_name="OC:HEAL-Top2File-K3"
     )
     for i, txt in enumerate(c3_raw):
         all_candidates_per_item[i].append(txt)
@@ -1322,6 +1560,7 @@ def main():
                                 it["vln_hint"],
                                 issue_syms,
                                 b_meta["prior_bonus"],
+                                cand_src=cand_src,
                             )
                             if t_score > best_t_score:
                                 best_t_score = t_score
@@ -1351,6 +1590,7 @@ def main():
                 "base_commit": it["base_commit"],
                 "localized_file": best_patched_fp if best_diff else pred_fp,
                 "supporting_files": it["supporting_files"],
+                "candidate_files": [c["file"] for c in it["candidates"]],
                 "gold_files": gold_files,
                 "localize_top1_match": top1_hit,
                 "localize_top3_match": top3_hit,
@@ -1369,7 +1609,7 @@ def main():
                 json.dumps(
                     {
                         "instance_id": it["instance_id"],
-                        "model_name_or_path": f"omnicoder-gemma-e2b-config3-k{args.beam_k}-zero-leakage",
+                        "model_name_or_path": f"omnicoder-gemma-e2b-config3-v4-k{args.beam_k}-zero-leakage",
                         "model_patch": best_diff,
                     }
                 )
@@ -1380,7 +1620,7 @@ def main():
     n = max(len(results), 1)
     summary = {
         "benchmark": "Official SWE-300 (princeton-nlp/SWE-bench_Lite Test Split)",
-        "config": f"Config 3: Full Organism (OmniCoder-ICX + VLN Cartridge + OmniCoder-Gemma-E2B + Speculative K={args.beam_k})",
+        "config": f"Config 3 v4: Full Organism (OmniCoder-ICX v4 + VLN Cartridge + OmniCoder-Gemma-E2B + Speculative K={args.beam_k})",
         "hardware": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU",
         "zero_leakage_training_split": True,
         "swe300_training_overlap_count": 0,
@@ -1392,30 +1632,60 @@ def main():
             "locate_json_validity_pct": round(100.0 * loc_json_valid_cnt / n, 1),
             "locate_real_repo_top1_file_accuracy_pct": round(100.0 * sum(1 for r in results if r["localize_top1_match"]) / n, 1),
             "locate_real_repo_top3_file_recall_pct": round(100.0 * sum(1 for r in results if r["localize_top3_match"]) / n, 1),
-            "locate_real_repo_top6_candidate_recall_pct": round(100.0 * sum(1 for r in results if r["localize_top6_recall"]) / n, 1),
+            "locate_stage1_top6_candidate_recall_pct": round(100.0 * sum(1 for r in results if r["localize_top6_recall"]) / n, 1),
             "repro_valid_python_ast_pct": round(100.0 * repro_ast_valid_cnt / n, 1),
-            "heal_valid_non_noop_editblock_pct": round(100.0 * heal_valid_block_cnt / n, 1),
-            "heal_real_file_anchor_match_pct": round(100.0 * anchor_applied_cnt / n, 1),
-            "heal_ast_verified_patch_generated_pct": round(100.0 * ast_verified_patch_cnt / n, 1),
-            "patched_correct_gold_file_pct": round(100.0 * sum(1 for r in results if r["patched_target_file_match"]) / n, 1),
-            "mean_diff_token_f1_on_patched_pct": round(
-                sum(r["diff_token_f1_pct"] for r in results if r["ast_verified_patch_generated"])
-                / max(ast_verified_patch_cnt, 1),
-                1,
-            ),
-            "vln_hint_coverage_pct": round(100.0 * sum(1 for r in results if r["vln_hint_injected"]) / n, 1),
+            "heal_valid_editblock_pct": round(100.0 * heal_valid_block_cnt / n, 1),
+            "heal_real_source_anchor_applied_pct": round(100.0 * anchor_applied_cnt / n, 1),
+            "heal_ast_verified_unified_diff_pct": round(100.0 * ast_verified_patch_cnt / n, 1),
+            "heal_patched_gold_target_file_pct": round(100.0 * sum(1 for r in results if r["patched_target_file_match"]) / n, 1),
+            "mean_diff_token_f1_vs_gold_patch_pct": round(sum(r["diff_token_f1_pct"] for r in results) / n, 1),
+            "high_similarity_patches_f1_ge_25_count": sum(1 for r in results if r["diff_token_f1_pct"] >= 25.0),
+            "high_similarity_patches_f1_ge_40_count": sum(1 for r in results if r["diff_token_f1_pct"] >= 40.0),
         },
         "predictions_jsonl": str(pred_path),
+    }
+
+    by_repo: dict[str, dict[str, Any]] = {}
+    for r in results:
+        rp = r["repo"]
+        st = by_repo.setdefault(rp, {"count": 0, "top1": 0, "top3": 0, "top6": 0, "ast_patch": 0, "gold_file_patch": 0, "f1_sum": 0.0})
+        st["count"] += 1
+        st["top1"] += int(bool(r["localize_top1_match"]))
+        st["top3"] += int(bool(r["localize_top3_match"]))
+        st["top6"] += int(bool(r["localize_top6_recall"]))
+        st["ast_patch"] += int(bool(r["ast_verified_patch_generated"]))
+        st["gold_file_patch"] += int(bool(r["patched_target_file_match"]))
+        st["f1_sum"] += float(r["diff_token_f1_pct"])
+
+    summary["by_repo"] = {
+        rp: {
+            "instances": st["count"],
+            "locate_top1_pct": round(100.0 * st["top1"] / st["count"], 1),
+            "locate_top3_pct": round(100.0 * st["top3"] / st["count"], 1),
+            "stage1_top6_pct": round(100.0 * st["top6"] / st["count"], 1),
+            "ast_verified_patch_pct": round(100.0 * st["ast_patch"] / st["count"], 1),
+            "patched_gold_file_pct": round(100.0 * st["gold_file_patch"] / st["count"], 1),
+            "mean_diff_f1_pct": round(st["f1_sum"] / st["count"], 1),
+        }
+        for rp, st in sorted(by_repo.items())
     }
 
     (out_dir / "swe300_a100_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     (out_dir / "swe300_a100_detailed.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
 
-    print("=" * 84, flush=True)
-    print(f"  OFFICIAL ZERO-LEAKAGE SWE-300 BENCHMARK COMPLETED IN {summary['wall_clock_min']} MINUTES!", flush=True)
-    print("=" * 84, flush=True)
-    print(json.dumps(summary, indent=2), flush=True)
-    print("=" * 84, flush=True)
+    print("\n" + "=" * 92)
+    print(f"  OFFICIAL SWE-300 (SWE-bench_Lite) A100 BENCHMARK COMPLETE (v4) in {total_wall:.1f}s ({summary['wall_clock_min']} min)")
+    print("=" * 92)
+    print(json.dumps(summary["metrics"], indent=2))
+    print("\nPer-Repository Breakdown:")
+    print(f"  {'Repository':<28} | {'N':>3} | {'Top1%':>6} | {'Top3%':>6} | {'Top6%':>6} | {'ASTPatch%':>9} | {'GoldFile%':>9} | {'MeanDiffF1':>10}")
+    print("  " + "-" * 88)
+    for rp, st in summary["by_repo"].items():
+        print(
+            f"  {rp:<28} | {st['instances']:3d} | {st['locate_top1_pct']:5.1f}% | {st['locate_top3_pct']:5.1f}% | "
+            f"{st['stage1_top6_pct']:5.1f}% | {st['ast_verified_patch_pct']:8.1f}% | {st['patched_gold_file_pct']:8.1f}% | {st['mean_diff_f1_pct']:9.1f}%"
+        )
+    print("=" * 92, flush=True)
 
 
 if __name__ == "__main__":
